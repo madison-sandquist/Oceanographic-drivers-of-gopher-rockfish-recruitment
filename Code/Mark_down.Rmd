@@ -1,0 +1,93 @@
+---
+title: "Manuscript Markdown"
+author: "Madison Sandquist"
+date: "2026-02-11"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Libraries Needed
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(car)
+library(broom)
+library(lme4)
+library(lmerTest)
+library(DHARMa)
+library(emmeans) #pairwise comparisons
+library(influence.ME) #outlier
+library("wesanderson")
+#remotes::install_github("r4ss/r4ss")
+library(zoo)
+```
+
+### Increasing font size and color for graphing
+
+```{r}
+# Set theme with larger axis titles and numbers
+larger_axis_theme <-
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black"),
+    legend.position = "none",
+    axis.title = element_text(size = 16),   # Axis titles
+    axis.text = element_text(size = 14),
+    title = element_text(size = 20)# Axis numbers
+  )
+
+colors <- wes_palette("AsteroidCity1", type = "discrete")
+
+spatial_colors <- c("mid" = colors[1], 
+                      "north" = colors[4],
+                 "south" = colors[3], 
+                 "all" = colors[2])
+```
+
+### Ocean model inputs from ROMS
+
+This data has been clean in python previous (see Python file for cleaning code)
+
+```{r}
+# load in data frame that is just DO, pH, temperature, CHLa,
+df_ocean <- read_csv("~/GitHub/Oceanographic-drivers-of-gopher-rockfish-recruitment/Data/monthly_averages_allyear_1995_2020_ALL_41to34p4.csv")
+
+# load in data frame that is wind
+df_wind <- read.csv("~/GitHub/Oceanographic-drivers-of-gopher-rockfish-recruitment/Data/monthly_Vwind_offshore_averages_ALL_41to34p4.csv")
+
+# change coding of month to merge
+df_wind1 <- df_wind %>%
+  mutate(Month = case_when(
+    Month == "January"   ~ "Jan",
+    Month == "February"  ~ "Feb",
+    Month == "March"     ~ "Mar",
+    Month == "April"     ~ "Apr",
+    Month == "May"       ~ "May",
+    Month == "June"      ~ "Jun",
+    Month == "July"      ~ "Jul",
+    Month == "August"    ~ "Aug",
+    Month == "September" ~ "Sep",
+    Month == "October"   ~ "Oct",
+    Month == "November"  ~ "Nov",
+    Month == "December"  ~ "Dec",
+    TRUE ~ Month  # keep original if no match
+  ))
+
+# Combine into one data frame 
+ROMS_outputs <- left_join(df_ocean, df_wind1, by = c("Year", "Month"))
+```
+
+### Coastal Upwelling Transport Index 
+
+```{r}
+cuti <- read.csv("Data/CUTI_daily.csv") %>% 
+  select(year, month, day,X34N, X35N,X36N,X37N,X38N,
+         X39N,X40N,X41N) %>% 
+  #filter(year > 1994) %>% 
+  filter(year < 2020) 
+```
