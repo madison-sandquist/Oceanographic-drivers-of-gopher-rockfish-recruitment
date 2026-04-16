@@ -1,0 +1,1389 @@
+---
+title: "Manuscript Markdown"
+author: "Madison Sandquist"
+date: "2026-04-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(
+  root.dir = "C:/Users/msand/OneDrive/Documents/GitHub/Oceanographic-drivers-of-gopher-rockfish-recruitment"
+)
+```
+
+### Libraries Needed
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(car)
+library(broom)
+library(lme4)
+library(lmerTest)
+library(DHARMa)
+library(emmeans) #pairwise comparisons
+library(influence.ME) #outliers
+library("wesanderson")
+#remotes::install_github("r4ss/r4ss")
+library(r4ss)
+library(zoo)
+library(patchwork)
+library(stringr)
+library(pls)
+library(plsVarSel)
+library(gridExtra)
+library(grid)
+library(slider)
+library(glue)
+```
+
+### Increasing font size and color for graphing
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# Set theme with larger axis titles and numbers
+larger_axis_theme <-
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black"),
+    legend.position = "none",
+    axis.title = element_text(size = 16),   # Axis titles
+    axis.text = element_text(size = 14),
+    title = element_text(size = 20)# Axis numbers
+  )
+
+colors <- wes_palette("AsteroidCity1", type = "discrete")
+
+spatial_colors <- c("mid" = colors[1], 
+                      "north" = colors[4],
+                 "south" = colors[3], 
+                 "all" = colors[2])
+```
+
+## Stock Assessment Recruitment Deviations (Figure 1)
+```{r, warning=FALSE}
+#recommended work flow, define model directory
+# stock assessment file from PFMC website from the pfmc website 
+model_path <- "D:/GPHR_BYEL_POST_STAR_BASE_MODEL" # this is the stock assessment file saved on an external hard drive
+goph2019 <- r4ss::SS_output(model_path, printstats = FALSE)
+with.covar = T	 
+parameters <- goph2019$parameters
+goph_recruit <- goph2019$recruit
+
+#not filtered for graphing 
+goph_recruit_nf <-goph_recruit %>% 
+  filter(Yr >= 1987, Yr <= 2018) %>% 
+  rename(Year = Yr)
+
+#filter for years to match the ROMS outputs
+goph_recruit <-goph_recruit %>% 
+  filter(Yr >= 1995, Yr <= 2018) %>% 
+  rename(Year = Yr) 
+
+# the pisco data from the SA file
+PISCO_age0_index <- read_csv("Data/PISCO_age0_index.csv")
+```
+
+#### Figure 1 - Recruitment Deviation Time series
+
+```{r, warning=FALSE}
+# ========== Time series of recruitment devs from SA ==========
+stock_assessment <- ggplot(goph_recruit_nf, aes(x = Year, y = dev)) +
+  geom_line(color = "steelblue", size = 1.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 1)+
+  geom_vline(xintercept = 1995, linetype = "solid", color = "indianred")+
+  theme_classic() +
+  labs(title = "", y = "Recruitment Deviation", x = "Year") + 
+  larger_axis_theme
+# ========== Time series of PISCO index of abundance ==========
+pisco_index <- ggplot(PISCO_age0_index, aes(x = Year, y = obs)) +
+  geom_line(color = "navyblue", size = 1.2) +
+  theme_classic() +
+  labs(title = "", y = "Index of Abundance", x = "Year") + 
+  scale_x_continuous(limits = c(1987, max(PISCO_age0_index$Year))) +
+  larger_axis_theme
+# ============= Corrleation plot ===========================
+
+recruit_merged <- left_join(PISCO_age0_index, goph_recruit, by = "Year")
+summary(recruit_merged)
+
+# Fit a linear model 
+lm_recruit <- lm(dev ~ obs, data = recruit_merged)
+summary(lm_recruit)
+
+
+recruit_plot <- ggplot(recruit_merged, aes(x = obs, y = dev)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = TRUE, size = 1.2, color = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste0("p < 0.001 r² = 0.87"),
+           hjust = 1, vjust = 1, size = 5, fontface = "italic") +
+  labs(
+    x = "Index of Abundance (PISCO)",
+    y = "Recruitment Deviations (Stock Assessment)",
+    title = ""
+  ) +
+  larger_axis_theme +
+  theme(axis.title.y = element_blank(), 
+        theme(axis.text = element_text(size = 16)))+
+  theme_classic()
+recruit_plot
+cor_plot <- ggsave("Figures/corr_rec.png", recruit_plot, width = 4, height = 4, dpi = 300)
+
+# ========== Combined Plot ==========
+# Then combine them
+fig1 <- stock_assessment / pisco_index + plot_layout(ncol = 1)
+fig1
+ggsave("Figures/fig1.png", fig1, width = 7, height = 5, dpi = 300)
+```
+
+## Cleaning and Combining Oceanographic Parameters
+
+#### Ocean model inputs from ROMS
+
+This data has been clean in python previous (see Python file for cleaning code)
+
+```{r}
+# load in data frame that is just DO, pH, temperature, CHLa,
+df_ocean <- read_csv("Data/monthly_averages_allyear_1995_2020_ALL_41to34p4.csv")
+
+df_ocean <- df_ocean %>% 
+  select(-Chla_avg, -Chla_sd)
+
+# load in data frame that is wind
+df_wind <- read.csv("Data/monthly_upwelling_wind_offshore_averages_ALL_41to34p4.csv")
+
+# change coding of month to merge
+df_wind1 <- df_wind %>%
+  mutate(Month = case_when(
+    Month == "January"   ~ "Jan",
+    Month == "February"  ~ "Feb",
+    Month == "March"     ~ "Mar",
+    Month == "April"     ~ "Apr",
+    Month == "May"       ~ "May",
+    Month == "June"      ~ "Jun",
+    Month == "July"      ~ "Jul",
+    Month == "August"    ~ "Aug",
+    Month == "September" ~ "Sep",
+    Month == "October"   ~ "Oct",
+    Month == "November"  ~ "Nov",
+    Month == "December"  ~ "Dec",
+    TRUE ~ Month  # keep original if no match
+  ))
+
+# Combine into one data frame 
+ROMS_outputs <- left_join(df_ocean, df_wind1, by = c("Year", "Month"))
+```
+
+#### Coastal Upwelling Transport Index
+
+```{r}
+cuti <- read.csv("Data/CUTI_daily.csv") %>%
+  select(year, month, day,
+         X35N, X36N, X37N, X38N, X39N, X40N, X41N) %>%
+  filter(year < 2020)%>% 
+  filter(year > 1994)
+
+# 1) Monthly mean for each latitude (averaging over days)
+monthly_lat <- cuti %>%
+  group_by(year, month) %>%
+  summarise(across(starts_with("X"), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  pivot_longer(cols = starts_with("X"), names_to = "lat_col", values_to = "CUTI") %>%
+  mutate(lat = as.integer(str_extract(lat_col, "\\d+"))) %>%
+  filter(between(lat, 35, 41))
+
+# 2) One monthly mean across ALL latitudes 34–41 (equal weight per latitude)
+cuti_tidy <- monthly_lat %>%
+  group_by(year, month) %>%
+  summarise(CUTI = mean(CUTI, na.rm = TRUE), .groups = "drop") %>%
+  rename(Year = year, Month = month) %>%
+  mutate(
+    Month = month.abb[as.integer(Month)]
+  ) %>%
+  arrange(Year, match(Month, month.abb))
+```
+
+#### Sea Level
+
+```{r}
+sl <- read.csv("Data/SLH_FULL.csv") %>% 
+  filter(SL > 0)
+  
+monthly_avg_sl <- sl %>%
+  group_by(Year, Month) %>%
+  summarize(mean_sl = mean(SL, na.rm = TRUE), .groups = "drop") %>% 
+  filter(Year >= 1995 & Year <= 2020)
+
+```
+
+#### PDO
+
+```{r}
+pdo <- read.csv("Data/pdo.timeseries.sstens.csv")
+
+# Convert the Date column to Date type
+pdo$Date <- as.Date(pdo$Date)
+
+# Filter the dataframe between 1995 and 2018
+monthly_avg_pdo <- pdo %>%
+  filter(Date >= as.Date("1995-01-01") & Date <= as.Date("2020-12-01")) %>% 
+  rename(mean_pdo = PDO.from.Ensemble.SST.https...psl.noaa.gov..pdo..Using.EOF.from.1920.to.2014.for.N.Pacific..see.webpage.) %>% 
+    mutate(
+    Year = year(Date),
+    Month = month(Date)
+  )
+
+```
+
+#### NPGO
+
+```{r}
+npgo <- read.csv("Data/npgo.csv")
+
+monthly_avg_npgo <- npgo %>%
+  mutate(Date = mdy(Date),
+         Year = year(Date),
+         Month = month(Date)) %>%
+  filter(Year >= 1995 & Year <= 2020) %>%
+  group_by(Year, Month) %>%
+  summarise(npgo_avg = mean(NPGO, na.rm = TRUE), .groups = "drop")
+
+```
+
+#### ONI
+
+```{r}
+ONI <- read.csv("Data/ONI_data.csv")
+monthly_avg_ONI <- ONI %>%
+  pivot_longer(
+    cols = all_of(month.abb),  # Ensures only "Jan" to "Dec"
+    names_to = "Month_name",
+    values_to = "oni_avg"
+  ) %>%
+  mutate(
+    Month = match(Month_name, month.abb)
+  ) %>%
+  select(Year, Month, oni_avg) %>%
+  arrange(Year, Month) %>% 
+  filter(Year > 1994) %>% 
+  filter(Year < 2020)
+
+```
+
+#### Combine indices into single data frame
+
+```{r}
+# non spatially separated 
+combined_monthly_indices <- monthly_avg_sl %>%
+  full_join(monthly_avg_pdo, by = c("Year", "Month")) %>%
+  full_join(monthly_avg_npgo, by = c("Year", "Month")) %>%
+  full_join(monthly_avg_ONI, by = c("Year", "Month")) %>% 
+  arrange(Year, Month) %>%
+  filter(Year < 2019) %>%
+  mutate(Month = month.abb[Month])
+head(combined_monthly_indices)
+
+# Combined with ROMS with cuti 
+ROMS_CUTI_environmental_combined_all_yr <- ROMS_outputs %>%
+  full_join(cuti_tidy, by = c("Year", "Month"))
+
+head(ROMS_CUTI_environmental_combined_all_yr)
+
+df_all_parameters <- ROMS_CUTI_environmental_combined_all_yr %>% 
+  full_join(combined_monthly_indices, by = c("Year", "Month"))%>% 
+  select(-Date)
+
+head(df_all_parameters)
+```
+
+### Oceanographic Time Series (Figures 2 and 3)
+
+#### Figure 2. Nearshore Habitat From 1995 to 2018
+```{r}
+ROMS_CUTI_environmental_combined_all_yr_plot <- ROMS_CUTI_environmental_combined_all_yr %>%
+  filter(Year <= 2018) %>% 
+  mutate(
+    Month_num = match(Month, month.abb),
+    Date = as.Date(paste(Year, Month_num, 1, sep = "-"))
+  )
+
+plot_df <- ROMS_CUTI_environmental_combined_all_yr_plot %>%
+  select(Date,
+         DO_avg,
+         pH_avg,
+         Temperature_avg,
+         UpwellWind_avg, 
+         CUTI) %>%
+  pivot_longer(
+    cols = -Date,
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(
+    panel = dplyr::recode(variable,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      UpwellWind_avg = "Vwind", 
+      CUTI = "Upwelling"
+    ),
+    panel = factor(panel,
+      levels = c("Dissolved Oxygen", "pH", "Temperature", "Vwind", "Upwelling")
+    )
+  )
+
+shade_df <- plot_df %>%
+  distinct(year = lubridate::year(Date)) %>%
+  mutate(
+    xmin = as.Date(paste0(year, "-01-01")),
+    xmax = as.Date(paste0(year, "-08-31"))
+  )
+
+
+fig2 <- ggplot(plot_df, aes(x = Date, y = value)) +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.4
+  ) +
+  geom_line(color = "black", linewidth = 0.7) +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  scale_x_date(
+    date_breaks = "3 years",
+    date_labels = "%Y",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(x = NULL, y = NULL) +
+  theme_bw(base_size = 14) +
+  theme(
+    strip.text = element_text(size = 16),
+    axis.text = element_text(size = 11),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+fig2
+
+ggsave("Figures/fig2.png", fig2, width = 7, height = 8, dpi = 300)
+```
+
+#### Figure 3 Ocean Basin Indices Time Series
+
+```{r}
+# make long data
+plot_df <- combined_monthly_indices %>%
+  select(Date, mean_sl, mean_pdo, npgo_avg, oni_avg) %>%
+  pivot_longer(
+    cols = c(npgo_avg, oni_avg, mean_pdo, mean_sl),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(
+    panel = dplyr::recode(
+      variable,
+      npgo_avg = "NPGO",
+      oni_avg  = "ONI",
+      mean_pdo = "PDO",
+      mean_sl  = "Sea Level Height"
+    ),
+    panel = factor(panel, levels = c("NPGO", "ONI", "PDO", "Sea Level Height")),
+    sign = case_when(
+      panel != "Sea Level Height" & value >= 0 ~ "pos",
+      panel != "Sea Level Height" & value <  0 ~ "neg",
+      TRUE ~ "line"
+    )
+  )
+
+shade_df <- plot_df %>%
+  distinct(year = lubridate::year(Date)) %>%
+  mutate(
+    xmin = as.Date(paste0(year, "-01-01")),
+    xmax = as.Date(paste0(year, "-08-31"))
+  )
+
+fig_sup1 <- ggplot() +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.5
+  ) +
+  # bar panels
+  geom_col(
+    data = filter(plot_df, panel != "Sea Level Height"),
+    aes(Date, value, fill = sign),
+    width = 25
+  ) +
+  # sea level line
+  geom_line(
+    data = filter(plot_df, panel == "Sea Level Height"),
+    aes(Date, value),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  scale_fill_manual(
+    values = c(pos = "indianred2", neg = "navy"),
+    guide = "none"
+  ) +
+  scale_x_date(
+    date_breaks = "3 years",
+    date_labels = "%Y",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(x = NULL, y = NULL) +
+  theme_bw(base_size = 14) +
+  theme(
+    panel.grid.major = element_line(color = "grey85", linewidth = 0.5),
+    panel.grid.minor = element_line(color = "grey92", linewidth = 0.3),
+    strip.background = element_rect(fill = "grey80", color = "grey40"),
+    strip.text = element_text(face = "bold", size = 18),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(0.15, "lines"),
+    legend.position = "none"
+  )
+
+fig_sup1
+
+ggsave("Figures/figsup1.png", fig_sup1, width = 7, height = 7, dpi = 300)
+```
+
+## Monthly Correlation Analysis
+
+```{r}
+# Join with environmental data
+full_data <- left_join(df_all_parameters, goph_recruit, by = "Year")
+
+# List of variables you want to correlate with recruitment
+vars_to_correlate <- c("mean_sl", "mean_pdo", "npgo_avg", "oni_avg", "DO_avg", "pH_avg", "Temperature_avg", "CUTI", "UpwellWind_avg")
+
+# Calculate correlations by month
+cor_data <- full_data %>%
+  pivot_longer(cols = all_of(vars_to_correlate), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable, Month) %>%
+  summarise(
+    cor_test = list(cor.test(Value, dev, method = "pearson")),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    correlation = map_dbl(cor_test, ~ .x$estimate),
+    pval        = map_dbl(cor_test, ~ .x$p.value),
+    t_stat      = map_dbl(cor_test, ~ .x$statistic),
+    significant = pval < 0.05
+  ) %>%
+  select(-cor_test)
+
+
+
+# Order months properly
+cor_data$Month <- factor(cor_data$Month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+
+cor_data <- cor_data %>%
+  mutate(Variable = dplyr::recode(as.character(Variable),
+    "mean_pdo"        = "PDO",
+    "mean_sl"         = "Sea Level",
+    "npgo_avg"        = "NPGO",
+    "oni_avg"         = "ONI",
+    "DO_avg" = "DO",
+    "pH_avg"  = "pH",
+    "Temperature_avg" = "Temperature",
+    "UpwellWind_avg" = "Wind", 
+    "CUTI" = "Upwelling"
+  ))
+```
+
+#### Figure 4 - Correlation plot
+
+```{r}
+
+desired_order <- c("DO","pH","Temperature", "Wind", "Upwelling", "PDO","Sea Level", "NPGO", "ONI")
+
+cor_data$Variable <- factor(cor_data$Variable, levels = desired_order)
+
+fig4 <- ggplot(cor_data, aes(x = Month, y = correlation, color = significant, group = 1)) +
+  geom_point(size = 3) +
+ geom_line(size = 1) +
+  facet_wrap(~Variable, ncol = 2) +
+  geom_hline(yintercept = 0, linetype = "solid", size = 0.25) +
+  geom_hline(yintercept = c(-0.25, 0.25), linetype = "dashed", color = "black", size = 0.75) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "indianred")) +
+  theme_classic() +
+  labs(
+    title = "",
+    y = "Correlation with Recruitment",
+    color = "Significant"
+  )+   theme_bw() +
+  theme(strip.text = element_text(size = 12, face = "bold"), 
+        axis.line = element_line(color = "black"),
+        legend.position = "none",
+        axis.title = element_text(size = 16),   # Axis titles
+        axis.text = element_text(size = 14),
+        axis.text.x = element_text(angle = 45, hjust = 1),  # 
+        title = element_text(size = 20))
+fig4
+
+# Making a data frame with significant months 
+significant_months <- cor_data %>%
+  filter(significant == TRUE)
+
+ggsave("Figures/fig4.png", fig4, width = 12, height = 12, dpi = 300)
+```
+
+## PSLR Analysis
+
+### PSLR averaging from Jan to Aug
+
+```{r}
+# Average oceanographic parameters annually 
+df_all_parameters_feb_sept_average <- df_all_parameters %>% 
+  filter(Month %in% c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug")) %>% 
+  group_by(Year) %>%
+  summarise(across(
+    c(DO_avg, pH_avg, Temperature_avg, UpwellWind_avg,CUTI, mean_pdo, npgo_avg, mean_sl, oni_avg),
+    ~ mean(.x, na.rm = TRUE),
+    .names = "mean_{.col}"
+  )) %>%
+  ungroup()
+
+# combined 
+df_gopher_avg_mar_sept <-left_join(df_all_parameters_feb_sept_average,goph_recruit, by = "Year")
+
+df_gopher_avg_mar_sept <- df_gopher_avg_mar_sept %>% 
+  select(dev, mean_mean_pdo, mean_CUTI, mean_mean_sl,mean_pH_avg, mean_DO_avg, mean_Temperature_avg) %>% 
+  rename(deviation = dev, 
+         CUTI = mean_CUTI,
+         PDO = mean_mean_pdo,
+         "Sea level height" = mean_mean_sl, 
+         pH = mean_pH_avg, 
+         DO = mean_DO_avg, 
+         Temperature = mean_Temperature_avg)
+
+# Define X and Y together and filter complete cases
+X_raw <- df_gopher_avg_mar_sept %>% 
+  select(PDO, CUTI,  "Sea level height" ,pH, DO, Temperature)
+
+# Combine into one frame with response
+data_complete <- cbind(dev = df_gopher_avg_mar_sept$deviation, X_raw) %>% 
+  as.data.frame() %>% 
+  na.omit()  # remove rows with any NA
+
+# Now separate into X and Y
+Y <- data_complete$dev
+X <- as.matrix(data_complete %>% select(-dev))
+
+plsr_model <- plsr(Y ~ X, scale = TRUE, validation = "LOO")
+pls_scores <- scores(plsr_model)
+
+df_pls <- data.frame(
+  dev = Y,
+  Comp1 = pls_scores[, 1],
+  Comp2 = pls_scores[, 2]
+)
+
+# Summary of model
+summary(plsr_model)
+
+# Root Mean Squared Error of Prediction
+RMSEP(plsr_model)
+
+# Choose number of components based on RMSEP or % variance explained
+plot(RMSEP(plsr_model), legendpos = "topright")
+
+# Variance explained
+explvar(plsr_model)  # % of variance explained in X by each component
+
+# Component loadings: how original vars contribute to latent variables
+loadings(plsr_model)
+
+# Scores: the new coordinate representation of observations
+pls_scores <- scores(plsr_model)
+
+# Biplot: visualize scores and loadings
+biplot(plsr_model, comps = 1:2)
+
+# Fit a linear model using first 2 PLS components
+lm_pls <- lm(dev ~ Comp1 + Comp2, data = df_pls)
+summary(lm_pls)
+
+# check residuals 
+simulated_res <- simulateResiduals(fittedModel = lm_pls)
+plot(simulated_res) #these look good
+
+selectNcomp(plsr_model, method = "onesigma")
+
+lm_pls_1comp <- lm(dev ~ Comp1, data = df_pls)
+summary(lm_pls_1comp)
+
+plot(RMSEP(plsr_model), legendpos = "topright")
+
+# 1-component model is optimal, so we use opt.comp = 1
+vip_scores <- VIP(plsr_model, opt.comp = 1)
+
+# Turn into data frame properly
+vip_df <- data.frame(
+  Variable = names(vip_scores),
+  VIP = vip_scores
+)
+
+ggplot(vip_df, aes(x = reorder(Variable, VIP), y = VIP)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "indianred4", size = 1) +
+  geom_hline(yintercept = .8, linetype = "dashed", color = "indianred3", size = 1) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Variable Importance in Projection (VIP)",
+       x = "Predictor",
+       y = "VIP Score")
+```
+
+#### Combined figure for PSLR
+
+```{r}
+# Extract predictor names from X
+predictor_names <- colnames(X)
+
+# ========== FIGURE A: PLS BIPLOT ==========
+
+loadings_data <- loadings(plsr_model)[, 1:2]
+loadings_df <- data.frame(
+  Variable = rownames(loadings_data),
+  Component1 = loadings_data[, 1],
+  Component2 = loadings_data[, 2]
+)
+
+fig_a_repro <- ggplot(loadings_df, aes(x = Component1, y = Component2)) +
+  # Unit circle
+  geom_path(data = data.frame(
+    x = cos(seq(0, 2 * pi, length.out = 100)),
+    y = sin(seq(0, 2 * pi, length.out = 100))
+  ), aes(x = x, y = y), color = "black", linewidth = 1) +
+
+  # Arrows and labels
+  geom_segment(aes(x = 0, y = 0, xend = Component1, yend = Component2),
+               arrow = arrow(length = unit(0.3, "cm")), 
+               color = "steelblue", linewidth = 1.2) +
+  geom_text(aes(label = Variable), 
+            color = "steelblue", size = 4, fontface = "bold",
+            nudge_x = ifelse(loadings_df$Component1 > 0, 0.05, -0.05),
+            nudge_y = ifelse(loadings_df$Component2 > 0, 0.05, -0.05)) +
+  
+  # Optional: Response direction (illustrative only)
+  # You can calculate actual correlation direction if desired
+  geom_segment(aes(x = 0, y = 0, xend = 0.6, yend = 0.4), 
+               arrow = arrow(length = unit(0.5, "cm")), 
+               color = "indianred", linewidth = 1.5) +
+  geom_text(aes(x = 0.68, y = 0.45, label = "Recruitment"), 
+             color = "indianred", size = 4, fontface = "bold") +
+  
+  xlim(-1.1, 1.1) + ylim(-1.1, 1.1) +
+  labs(x = "Component 1", y = "Component 2", title = "Reproductive Season Average") +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  ) +
+  coord_fixed()
+# ========== FIGURE B: COMPONENT 1 vs RESPONSE ==========
+
+# Ensure response is matched to filtered data
+component1_scores <- scores(plsr_model)[, 1]
+response_var <- Y  # this Y comes from the filtered, complete-case data
+
+# Compute R² and p-value
+var_explained <- explvar(plsr_model)[1]
+lm_comp1 <- lm(response_var ~ component1_scores)
+lm_summary <- summary(lm_comp1)
+p_value <- lm_summary$coefficients[2, 4]
+r_squared <- lm_summary$r.squared
+
+# Format p-value
+p_text <- if (p_value < 0.001) {
+  "p < 0.001"
+} else if (p_value < 0.01) {
+  paste0("p = ", format(round(p_value, 3), nsmall = 3))
+} else {
+  paste0("p = ", format(round(p_value, 2), nsmall = 2))
+}
+
+annotation_text <- paste0("R² = ", format(round(r_squared, 3), nsmall = 3), "\n", p_text)
+
+fig_b_repro <- ggplot(data.frame(Component1 = component1_scores, Response = response_var),
+                aes(x = Component1, y = Response)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  geom_smooth(method = "lm", color = "steelblue", fill = "black", alpha = 0.3) +
+  annotate("text", 
+           x = Inf, y = Inf, 
+           label = annotation_text,
+           hjust = 1.3, vjust = 1.3,
+           size = 4, 
+           fontface = "bold",
+           color = "black") +
+  labs(
+    x = paste0("PLSR component 1 (", round(var_explained, 1), "%)"),
+    y = "Recruitment Deviations",
+    title = ""
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+
+# ========== FIGURE C: VIP PLOT ==========
+
+fig_c_repro <- ggplot(vip_df, aes(x = reorder(Variable, VIP), y = VIP)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "indianred4", size = 1) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "indianred3", size = 1) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "",
+       x = "Predictor",
+       y = "VIP Score") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+
+# ========== COMBINE ALL THREE FIGURES ==========
+combined_plot <- fig_a_repro + fig_b_repro + fig_c_repro + 
+  plot_layout(ncol = 3)
+combined_plot
+
+ggsave('Figures/fig5_repro.png', width = 10, height = 4, dpi = 300)
+```
+
+## Best historical predictor - including CUTI just for fun
+
+```{r}
+## Join everything
+df_env_joined <- left_join(ROMS_CUTI_environmental_combined_all_yr, goph_recruit, by = "Year") %>%
+  select(Year, Month, DO_avg, pH_avg, Temperature_avg, dev, CUTI) %>% 
+  rename('CUTI_avg' = "CUTI")
+
+## Puts drivers into long format and calculates rolling averages 
+### Calculates trailing rolling averages - so the rolling average ends in the month it states
+### EX - 3-month in "Jul" is May, June, July
+month_levels <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+df_long <- df_env_joined %>%
+  pivot_longer(
+    cols = c(DO_avg, pH_avg, Temperature_avg, CUTI_avg),
+    names_to = "driver",
+    values_to = "value"
+  ) %>%
+  mutate(
+    Month = factor(Month, levels = month_levels, ordered = TRUE),
+    Month_num = match(as.character(Month), month_levels)
+  ) %>%
+  arrange(driver, Year, Month_num)
+
+df_windows <- df_long %>%
+  group_by(driver, Year) %>%
+  arrange(Month_num, .by_group = TRUE) %>%
+  mutate(
+    value_1mo = value,
+    value_3mo = slide_dbl(value, mean, .before = 2, .complete = TRUE, na.rm = FALSE), 
+    value_6mo = slide_dbl(value, mean, .before = 6, .complete = TRUE, na.rm = FALSE)
+  ) %>%
+  ungroup()
+
+
+
+df_candidates <- df_windows %>%
+  select(Year, Month, dev, driver, value_1mo, value_3mo, value_6mo) %>%
+  pivot_longer(
+    cols = starts_with("value_"),
+    names_to = "window",
+    values_to = "predictor"
+  ) %>%
+  mutate(
+    window = dplyr::recode(
+      window,
+      value_1mo = "single month",
+      value_3mo = "3-month rolling avg",
+      value_6mo = "6-month rolling avg"
+    )
+  ) %>%
+  filter(!is.na(predictor), !is.na(dev))
+
+## Fit every model and choose best per driver
+model_results <- df_candidates %>%
+  group_by(driver, Month, window) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(dev ~ predictor, data = .x)),
+    glance = map(model, glance),
+    tidy = map(model, tidy)
+  ) %>%
+  mutate(
+    r.squared = map_dbl(glance, "r.squared"),
+    adj.r.squared = map_dbl(glance, "adj.r.squared"),
+    model_p = map_dbl(glance, "p.value"),
+    slope = map_dbl(tidy, ~ .x %>% filter(term == "predictor") %>% pull(estimate)),
+    slope_p = map_dbl(tidy, ~ .x %>% filter(term == "predictor") %>% pull(p.value))
+  ) %>%
+  select(driver, Month, window, model, r.squared, adj.r.squared, model_p, slope, slope_p)
+
+best_models <- model_results %>%
+  group_by(driver) %>%
+  slice_max(order_by = r.squared, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+best_models
+
+## Get fitted values and confidence intervals for the best model of each driver
+best_predictions <- best_models %>%
+  select(driver, Month, window, model, r.squared) %>%
+  left_join(df_candidates, by = c("driver", "Month", "window")) %>%
+  group_by(driver, Month, window, r.squared) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(dev ~ predictor, data = .x)),
+    pred = map2(model, data, ~ {
+      preds <- predict(.x, newdata = .y, interval = "confidence")
+      bind_cols(.y, as_tibble(preds))
+    })
+  ) %>%
+  select(-data, -model) %>%
+  unnest(pred) %>%
+  ungroup()
+```
+
+#### Table with linear model outputs
+
+```{r}
+month_abbs <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+make_window_label <- function(month, window_type) {
+  month <- as.integer(month)
+  
+  if (window_type == "single month") {
+    return(month_abbs[month])
+  }
+  
+  if (window_type == "3-month rolling avg") {
+    return(paste0(month_abbs[month - 2], "-", month_abbs[month]))
+  }
+  
+  if (window_type == "6-month rolling avg") {
+    return(paste0(month_abbs[month - 5], "-", month_abbs[month]))
+  }
+  
+  return(NA_character_)
+}
+
+driver_labels <- c(
+  DO_avg = "Dissolved Oxygen",
+  pH_avg = "pH",
+  Temperature_avg = "Temperature", 
+  CUTI_avg = "CUTI"
+)
+
+best_model_table <- best_models %>%
+  mutate(
+    Month_num = as.integer(Month),
+    driver_name = dplyr::recode(driver, !!!driver_labels),
+    period = map2_chr(Month_num, window, make_window_label),
+    window_label = case_when(
+      window == "single month" ~ period,
+      TRUE ~ paste(period, "mean")
+    ),
+    tidy_out = map(model, tidy),
+    glance_out = map(model, glance)
+  ) %>%
+  mutate(
+    intercept = map_dbl(tidy_out, ~ .x %>% filter(term == "(Intercept)") %>% pull(estimate)),
+    slope = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(estimate)),
+    slope_se = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(std.error)),
+    slope_t = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(statistic)),
+    slope_p = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(p.value)),
+    r2 = map_dbl(glance_out, "r.squared"),
+    adj_r2 = map_dbl(glance_out, "adj.r.squared"),
+    model_p = map_dbl(glance_out, "p.value"),
+    AIC = map_dbl(glance_out, "AIC"),
+    BIC = map_dbl(glance_out, "BIC"),
+    n = map_dbl(glance_out, "nobs")
+  ) %>%
+  transmute(
+    Driver = driver_name,
+    `Selected window` = window_label,
+    Intercept = round(intercept, 3),
+    Slope = round(slope, 3),
+    `SE` = round(slope_se, 3),
+    `t value` = round(slope_t, 3),
+    `Slope p` = signif(slope_p, 3),
+    `R²` = round(r2, 3),
+    `Adj. R²` = round(adj_r2, 3),
+    `p-value` = signif(model_p, 3),
+    AIC = round(AIC, 2),
+    BIC = round(BIC, 2),
+    n = as.integer(n)
+  )
+
+best_model_table
+
+
+best_model_table1 <- best_model_table %>% 
+  select(Driver, `Selected window`, n, Slope, `SE`, `R²`, `p-value`)
+knitr::kable(
+  best_model_table1,
+  #caption = "Summary statistics for the strongest univariate linear models relating annual recruitment deviation to each environmental driver."
+)
+```
+
+#### Figure 6. Linear regression predictions
+
+```{r}
+observed_dev <- df_env_joined %>%
+  distinct(Year, dev)
+
+driver_labels <- c(
+  DO_avg = "Dissolved Oxygen",
+  pH_avg = "pH",
+  Temperature_avg = "Temperature", 
+  CUTI_avg = "CUTI"
+)
+
+driver_colors <- c(
+  Temperature_avg = "#E76F51",
+  DO_avg = "#4C78A8",
+  pH_avg = "#66A61E", 
+  CUTI_avg = "chocolate4"
+)
+
+month_labels <- c(
+  "1" = "Jan", "2" = "Feb", "3" = "Mar", "4" = "Apr",
+  "5" = "May", "6" = "Jun", "7" = "Jul", "8" = "Aug",
+  "9" = "Sep", "10" = "Oct", "11" = "Nov", "12" = "Dec"
+)
+
+subtitle_df <- best_models %>%
+  mutate(
+    driver_name = dplyr::recode(driver, !!!driver_labels),
+    month_name = dplyr::recode(as.character(Month), !!!month_labels),
+    label = glue::glue("{driver_name}: {month_name}, {window}, r²={round(r.squared, 3)}")
+  )
+
+subtitle_df
+
+label_positions <- best_predictions %>%
+  group_by(driver) %>%
+  filter(Year == max(Year)) %>%
+  distinct(driver, Year, fit) %>%
+  left_join(
+    best_models %>% select(driver, r.squared),
+    by = "driver"
+  ) %>%
+  mutate(
+    label = paste0("r² = ", round(r.squared, 2))
+  )
+
+label_positions <- label_positions %>%
+  arrange(driver) %>%
+  mutate(
+    y_offset = case_when(
+      driver == "DO_avg" ~ 0.25,
+      driver == "pH_avg" ~ -0.0,
+      driver == "Temperature_avg" ~ 0.12,
+      driver == "CUTI_avg" ~ -.1
+    )
+  )
+
+subtitle_text <- paste(subtitle_df$label, collapse = "\n")
+
+ggplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  
+  geom_ribbon(
+    data = best_predictions,
+    aes(x = Year, ymin = lwr, ymax = upr, fill = driver),
+    alpha = 0.2
+  ) +
+  
+  geom_line(
+    data = best_predictions,
+    aes(x = Year, y = fit, color = driver),
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+
+  geom_line(
+    data = observed_dev,
+    aes(x = Year, y = dev),
+    color = "black",
+    linewidth = 1
+  ) +
+  
+  geom_text(
+    data = label_positions,
+    aes(x = Year, y = fit + y_offset, label = label, color = driver),
+    hjust = -0.1,
+    size = 4,
+    show.legend = FALSE
+  ) +
+  
+  scale_color_manual(
+    values = driver_colors,
+    labels = driver_labels,
+    name = NULL
+  ) +
+  scale_fill_manual(
+    values = driver_colors,
+    labels = driver_labels,
+    name = NULL
+  ) +
+  
+  labs(
+    title = "",
+    x = "Year",
+    y = "Recruitment deviation"
+  ) +
+  
+  coord_cartesian(
+    xlim = c(min(observed_dev$Year), max(observed_dev$Year) + 1)
+  ) +
+  
+  theme_bw(base_size = 16) +
+  theme(
+    legend.position = "bottom"
+  )
+
+ggsave('Figures/fig6.png', width = 8, height = 4, dpi = 300)
+```
+
+#### Better at predicting negative vs. positive recruitment
+```{r}
+sign_performance <- best_models %>%
+  mutate(
+    augmented = map(model, augment)
+  ) %>%
+  unnest(augmented) %>%
+  mutate(
+    observed_sign = if_else(dev > 0, "positive", "negative"),
+    predicted_sign = if_else(.fitted > 0, "positive", "negative"),
+    correct = observed_sign == predicted_sign
+  )
+
+accuracy_summary <- sign_performance %>%
+  group_by(driver) %>%
+  summarise(
+    accuracy = mean(correct),
+    n = n()
+  )
+
+loocv_classification <- function(model) {
+  data <- model$model
+  n <- nrow(data)
+  
+  preds <- map_dbl(1:n, function(i) {
+    train <- data[-i, ]
+    test <- data[i, ]
+    
+    m <- lm(dev ~ predictor, data = train)
+    predict(m, newdata = test)
+  })
+  
+  tibble(
+    observed = data$dev,
+    predicted = preds
+  ) %>%
+    mutate(
+      observed_sign = if_else(observed > 0, "positive", "negative"),
+      predicted_sign = if_else(predicted > 0, "positive", "negative"),
+      correct = observed_sign == predicted_sign
+    )
+}
+
+loocv_results <- best_models %>%
+  mutate(
+    results = map(model, loocv_classification)
+  ) %>%
+  unnest(results)
+
+loocv_summary <- loocv_results %>%
+  group_by(driver) %>%
+  summarise(
+    accuracy = mean(correct),
+    TP = sum(predicted_sign == "positive" & observed_sign == "positive"),
+    TN = sum(predicted_sign == "negative" & observed_sign == "negative"),
+    FP = sum(predicted_sign == "positive" & observed_sign == "negative"),
+    FN = sum(predicted_sign == "negative" & observed_sign == "positive"),
+    sensitivity = TP / (TP + FN),
+    specificity = TN / (TN + FP)
+  )
+
+loocv_summary
+
+classification_table <- loocv_results %>%
+  group_by(driver) %>%
+  summarise(
+    n = n(),
+    TP = sum(predicted_sign == "positive" & observed_sign == "positive"),
+    TN = sum(predicted_sign == "negative" & observed_sign == "negative"),
+    FP = sum(predicted_sign == "positive" & observed_sign == "negative"),
+    FN = sum(predicted_sign == "negative" & observed_sign == "positive"),
+    
+    Accuracy = (TP + TN) / n,
+    Sensitivity = TP / (TP + FN),   # detects positive years
+    Specificity = TN / (TN + FP)    # detects negative years
+  ) %>%
+  mutate(
+    Driver = dplyr::recode(driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature"
+    )
+  ) %>%
+  select(Driver, n, Accuracy, Sensitivity, Specificity, TP, TN, FP, FN)
+
+classification_table
+
+final_table <- classification_table %>%
+  mutate(
+    Accuracy = round(Accuracy, 2),
+    Sensitivity = round(Sensitivity, 2),
+    Specificity = round(Specificity, 2)
+  ) %>%
+  select(Driver, Accuracy, Sensitivity, Specificity)
+
+final_table
+
+knitr::kable(
+  final_table
+)
+
+```
+
+#### Saving as a .rds for future projections
+
+```{r}
+best_model_objects <- best_models %>%
+  select(driver, Month, window, model)
+
+saveRDS(best_model_objects, "best_historical_recruitment_models.rds")
+```
+
+## Future Oceanographic Characteristics
+
+```{r}
+full_palette <- wes_palette("Moonrise2", type = "discrete")
+full_palette
+ESM_colors <- c("GFDL" = full_palette[1], 
+                      "HADL" = full_palette[2],
+                 "IPSL" = full_palette[4])
+```
+
+#### Reading in csv that were cleaned in python
+```{r}
+GFDL<- read.csv("Data/GFDL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
+  mutate(ESM = "GFDL")
+
+HADL <- read.csv("Data/HADL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
+  mutate(ESM = "HADL")
+
+IPSL <- read.csv("Data/IPSL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
+  mutate(ESM = "IPSL")
+
+# Combine all into one dataframe
+future_ocean <- bind_rows(
+  GFDL, HADL,IPSL
+)
+
+# View result
+head(future_ocean)
+```
+
+#### Cleaning data for plotting
+```{r}
+future_ocean2 <- future_ocean %>% 
+  filter(Month %in% c("Jan", 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'))
+# annual means by ESM
+future_annual <- future_ocean2 %>%
+  group_by(ESM, Year) %>%
+  summarize(
+    DO = mean(DO_avg, na.rm = TRUE),
+    pH = mean(pH_avg, na.rm = TRUE),
+    Temperature = mean(Temperature_avg, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# long format
+future_long <- future_annual %>%
+  pivot_longer(
+    cols = c(DO, pH, Temperature),
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+# 1. Annual means by ESM
+future_annual <- future_ocean %>%
+  group_by(ESM, Year) %>%
+  summarize(
+    DO = mean(DO_avg, na.rm = TRUE),
+    pH = mean(pH_avg, na.rm = TRUE),
+    Temperature = mean(Temperature_avg, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Common theme
+fig_theme <- theme_classic(base_size = 14) +
+  theme(
+    legend.position = "bottom"
+  )
+
+# 3. DO plot
+p_do <- ggplot(future_annual, aes(x = Year, y = DO, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = NULL,
+    y = "DO (mg/L)"
+  ) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 4. pH plot
+p_ph <- ggplot(future_annual, aes(x = Year, y = pH, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = NULL,
+    y = "pH"
+  ) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 5. Temperature plot
+p_temp <- ggplot(future_annual, aes(x = Year, y = Temperature, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = "Year",
+    y = expression(Temperature~(degree*C))
+  ) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 6. Combine
+final_plot <- p_do / p_ph / p_temp +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+final_plot
+```
+
+```{r}
+# define periods
+historical <- future_ocean %>% filter(Year <= 2020)
+future <- future_ocean %>% filter(Year >= 2020)
+
+# summarize
+summary_compare <- bind_rows(
+  historical %>% mutate(Period = "Historical"),
+  future %>% mutate(Period = "Future")
+) %>%
+  group_by(Period) %>%
+  summarize(
+    DO = mean(DO_avg, na.rm = TRUE),
+    pH = mean(pH_avg, na.rm = TRUE),
+    Temp = mean(Temperature_avg, na.rm = TRUE)
+  )
+```
+
+#### Figure 8
+```{r}
+# 1. Define periods
+future_ocean2 <- future_ocean %>%
+  mutate(
+    Period = case_when(
+      Year <= 2020 ~ "2000-2020",
+      Year >= 2020 ~ "2020-2100",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Period)) %>% 
+  filter(Month %in% c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"))
+
+# 2. Long format
+future_long <- future_ocean2 %>%
+  pivot_longer(
+    cols = c(DO_avg, pH_avg, Temperature_avg),
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Variable = dplyr::recode(Variable,
+      DO_avg = "DO",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature"
+    )
+  )
+
+# make sure order is correct
+future_long$Period <- factor(future_long$Period, levels = c("2000-2020", "2020-2100"))
+future_long$Variable <- factor(future_long$Variable, levels = c("DO", "pH", "Temperature"))
+
+fig_theme <- theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+make_boxplot <- function(var_name, y_lab) {
+  ggplot(
+    dplyr::filter(future_long, Variable == var_name),
+    aes(x = Period, y = Value, fill = ESM)
+  ) +
+    geom_boxplot(
+      position = position_dodge(width = 0.75),
+      outlier.shape = NA,
+      alpha = 0.7
+    ) +
+    geom_point(
+      aes(color = ESM),
+      position = position_jitterdodge(
+        jitter.width = 0.15,
+        dodge.width = 0.75
+      ),
+      alpha = 0.2,
+      size = 0.8
+    ) +
+    scale_color_manual(values = ESM_colors, name = "Model") +
+    scale_fill_manual(values = ESM_colors, name = "Model") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+    labs(
+      title = "",
+      x = NULL,
+      y = y_lab
+    ) +
+    fig_theme
+}
+
+p_do_box <- make_boxplot("DO", "DO (mg/L)")
+p_ph_box <- make_boxplot("pH", "pH")
+p_temp_box <- make_boxplot("Temperature", expression(Temperature~(degree*C)))
+
+final_boxplot <- (p_do_box | p_ph_box | p_temp_box) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "")
+
+final_boxplot
+
+ggsave('Figures/fig8.png', width = 8, height = 4, dpi = 300)
+```
+
