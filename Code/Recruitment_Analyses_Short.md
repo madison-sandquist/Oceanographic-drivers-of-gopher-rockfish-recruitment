@@ -1,19 +1,11 @@
----
-title: "Manuscript Markdown"
-author: "Madison Sandquist"
-date: "2026-04-16"
-output: github_document
----
-
-```{r setup, include=FALSE}
-knitr::opts_knit$set(
-  root.dir = "C:/Users/msand/OneDrive/Documents/GitHub/Oceanographic-drivers-of-gopher-rockfish-recruitment"
-)
-```
+Manuscript Markdown
+================
+Madison Sandquist
+2026-04-16
 
 ### Libraries Needed
 
-```{r, echo=TRUE, message=FALSE, warning=FALSE}
+``` r
 library(tidyverse)
 library(ggplot2)
 library(car)
@@ -38,7 +30,8 @@ library(glue)
 ```
 
 ### Increasing font size and color for graphing
-```{r, echo=TRUE, message=FALSE, warning=FALSE}
+
+``` r
 # Set theme with larger axis titles and numbers
 larger_axis_theme <-
   theme(
@@ -60,12 +53,67 @@ spatial_colors <- c("mid" = colors[1],
 ```
 
 ## Stock Assessment Recruitment Deviations (Figure 1)
-```{r, warning=FALSE}
+
+``` r
 #recommended work flow, define model directory
 # stock assessment file from PFMC website from the pfmc website 
 model_path <- "D:/GPHR_BYEL_POST_STAR_BASE_MODEL" # this is the stock assessment file saved on an external hard drive
 goph2019 <- r4ss::SS_output(model_path, printstats = FALSE)
-with.covar = T	 
+```
+
+    ## This function tested on SS versions 3.24 and 3.30.
+    ##   You are using 3.30.13.09-opt which SHOULD work with this package.
+
+    ## Report file time:Tue Dec 10 15:40:01 2024
+
+    ## Reading full report file
+
+    ## Got all columns using ncols = 53
+
+    ## Got Report file
+
+    ## Setting minimum biomass threshhold to 0.25  based on US west coast assumption associated with biomass target of 0.4.  (can replace or override in SS_plots by setting 'minbthresh')
+
+    ## Got log file. There were NO temporary files were written in this run.
+
+    ## Got warning file. Final line:Number_of_active_parameters_on_or_near_bounds: 0
+
+    ## Finished reading files
+
+    ## Removing 0 out of 16028 rows in CompReport.sso which are duplicates.
+
+    ## CompReport file separated by this code as follows (rows = Ncomps*Nbins):
+    ##   5032 rows of length comp data
+    ##   10498 rows of conditional age-at-length data
+
+    ## Finished dimensioning
+
+    ## Got covar file.
+
+    ## Finished primary run statistics list
+
+    ## running SS_readstarter
+
+    ##   data, control files: gopher.dat, gopher.ctl
+
+    ##   converge_criterion = 1e-04
+
+    ##   SPR_basis = 1
+
+    ##   F_std_basis = 0
+
+    ## Assuming version 3.30 based on number of numeric values.
+
+    ##   MCMC_output_detail = 0
+
+    ##   ALK_tolerance = 0
+
+    ## Read of starter file complete. Final value: 3.3
+
+    ## completed SS_output
+
+``` r
+with.covar = T   
 parameters <- goph2019$parameters
 goph_recruit <- goph2019$recruit
 
@@ -83,9 +131,18 @@ goph_recruit <-goph_recruit %>%
 PISCO_age0_index <- read_csv("Data/PISCO_age0_index.csv")
 ```
 
+    ## Rows: 18 Columns: 3
+
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: ","
+    ## dbl (3): Year, obs, stderr
+    ## 
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
 #### Figure 1 - Recruitment Deviation Time series
 
-```{r, warning=FALSE}
+``` r
 # ========== Time series of recruitment devs from SA ==========
 stock_assessment <- ggplot(goph_recruit_nf, aes(x = Year, y = dev)) +
   geom_line(color = "steelblue", size = 1.2) +
@@ -105,12 +162,63 @@ pisco_index <- ggplot(PISCO_age0_index, aes(x = Year, y = obs)) +
 
 recruit_merged <- left_join(PISCO_age0_index, goph_recruit, by = "Year")
 summary(recruit_merged)
+```
 
+    ##       Year           obs               stderr          SpawnBio    
+    ##  Min.   :2001   Min.   :0.003946   Min.   :0.3272   Min.   :552.9  
+    ##  1st Qu.:2005   1st Qu.:0.015264   1st Qu.:0.4171   1st Qu.:704.8  
+    ##  Median :2010   Median :0.042925   Median :0.5732   Median :901.5  
+    ##  Mean   :2010   Mean   :0.091528   Mean   :0.7679   Mean   :829.9  
+    ##  3rd Qu.:2014   3rd Qu.:0.161917   3rd Qu.:1.0005   3rd Qu.:965.6  
+    ##  Max.   :2018   Max.   :0.313990   Max.   :2.0004   Max.   :990.1  
+    ##     exp_recr     with_regime   bias_adjusted    pred_recr         dev         
+    ##  Min.   :2779   Min.   :2779   Min.   :2750   Min.   :1432   Min.   :-0.6535  
+    ##  1st Qu.:2902   1st Qu.:2902   1st Qu.:2788   1st Qu.:1823   1st Qu.:-0.4457  
+    ##  Median :3008   Median :3008   Median :2890   Median :2232   Median :-0.2549  
+    ##  Mean   :2961   Mean   :2961   Mean   :2855   Mean   :2617   Mean   :-0.1658  
+    ##  3rd Qu.:3034   3rd Qu.:3034   3rd Qu.:2915   3rd Qu.:3240   3rd Qu.: 0.1016  
+    ##  Max.   :3044   Max.   :3044   Max.   :2924   Max.   :5264   Max.   : 0.6441  
+    ##   biasadjuster         era              mature_bio      mature_num  
+    ##  Min.   :0.07323   Length:18          Min.   :552.9   Min.   :1813  
+    ##  1st Qu.:0.32000   Class :character   1st Qu.:704.8   1st Qu.:2190  
+    ##  Median :0.32000   Mode  :character   Median :901.5   Median :2804  
+    ##  Mean   :0.28957                      Mean   :829.9   Mean   :2658  
+    ##  3rd Qu.:0.32000                      3rd Qu.:965.6   3rd Qu.:3084  
+    ##  Max.   :0.32000                      Max.   :990.1   Max.   :3407  
+    ##     raw_dev       
+    ##  Min.   :-0.6535  
+    ##  1st Qu.:-0.4457  
+    ##  Median :-0.2549  
+    ##  Mean   :-0.1658  
+    ##  3rd Qu.: 0.1016  
+    ##  Max.   : 0.6441
+
+``` r
 # Fit a linear model 
 lm_recruit <- lm(dev ~ obs, data = recruit_merged)
 summary(lm_recruit)
+```
 
+    ## 
+    ## Call:
+    ## lm(formula = dev ~ obs, data = recruit_merged)
+    ## 
+    ## Residuals:
+    ##      Min       1Q   Median       3Q      Max 
+    ## -0.24993 -0.04867 -0.01081  0.04762  0.37905 
+    ## 
+    ## Coefficients:
+    ##             Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept) -0.51998    0.04777  -10.88 8.33e-09 ***
+    ## obs          3.86931    0.36270   10.67 1.11e-08 ***
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## Residual standard error: 0.1457 on 16 degrees of freedom
+    ## Multiple R-squared:  0.8767, Adjusted R-squared:  0.869 
+    ## F-statistic: 113.8 on 1 and 16 DF,  p-value: 1.109e-08
 
+``` r
 recruit_plot <- ggplot(recruit_merged, aes(x = obs, y = dev)) +
   geom_point(size = 3, shape = 21, fill = "grey30") +
   geom_smooth(method = "lm", se = TRUE, size = 1.2, color = "black") +
@@ -126,12 +234,28 @@ recruit_plot <- ggplot(recruit_merged, aes(x = obs, y = dev)) +
         theme(axis.text = element_text(size = 16)))+
   theme_classic()
 recruit_plot
-cor_plot <- ggsave("Figures/corr_rec.png", recruit_plot, width = 4, height = 4, dpi = 300)
+```
 
+    ## `geom_smooth()` using formula = 'y ~ x'
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+
+``` r
+cor_plot <- ggsave("Figures/corr_rec.png", recruit_plot, width = 4, height = 4, dpi = 300)
+```
+
+    ## `geom_smooth()` using formula = 'y ~ x'
+
+``` r
 # ========== Combined Plot ==========
 # Then combine them
 fig1 <- stock_assessment / pisco_index + plot_layout(ncol = 1)
 fig1
+```
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
+
+``` r
 ggsave("Figures/fig1.png", fig1, width = 7, height = 5, dpi = 300)
 ```
 
@@ -139,12 +263,24 @@ ggsave("Figures/fig1.png", fig1, width = 7, height = 5, dpi = 300)
 
 #### Ocean model inputs from ROMS
 
-This data has been clean in python previous (see Python file for cleaning code)
+This data has been clean in python previous (see Python file for
+cleaning code)
 
-```{r}
+``` r
 # load in data frame that is just DO, pH, temperature, CHLa,
 df_ocean <- read_csv("Data/monthly_averages_allyear_1995_2020_ALL_41to34p4.csv")
+```
 
+    ## Rows: 312 Columns: 10
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: ","
+    ## chr (1): Month
+    ## dbl (9): Year, DO_avg, DO_sd, pH_avg, pH_sd, Temperature_avg, Temperature_sd...
+    ## 
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+``` r
 df_ocean <- df_ocean %>% 
   select(-Chla_avg, -Chla_sd)
 
@@ -175,7 +311,7 @@ ROMS_outputs <- left_join(df_ocean, df_wind1, by = c("Year", "Month"))
 
 #### Coastal Upwelling Transport Index
 
-```{r}
+``` r
 cuti <- read.csv("Data/CUTI_daily.csv") %>%
   select(year, month, day,
          X35N, X36N, X37N, X38N, X39N, X40N, X41N) %>%
@@ -203,7 +339,7 @@ cuti_tidy <- monthly_lat %>%
 
 #### Sea Level
 
-```{r}
+``` r
 sl <- read.csv("Data/SLH_FULL.csv") %>% 
   filter(SL > 0)
   
@@ -211,12 +347,11 @@ monthly_avg_sl <- sl %>%
   group_by(Year, Month) %>%
   summarize(mean_sl = mean(SL, na.rm = TRUE), .groups = "drop") %>% 
   filter(Year >= 1995 & Year <= 2020)
-
 ```
 
 #### PDO
 
-```{r}
+``` r
 pdo <- read.csv("Data/pdo.timeseries.sstens.csv")
 
 # Convert the Date column to Date type
@@ -230,12 +365,11 @@ monthly_avg_pdo <- pdo %>%
     Year = year(Date),
     Month = month(Date)
   )
-
 ```
 
 #### NPGO
 
-```{r}
+``` r
 npgo <- read.csv("Data/npgo.csv")
 
 monthly_avg_npgo <- npgo %>%
@@ -245,12 +379,11 @@ monthly_avg_npgo <- npgo %>%
   filter(Year >= 1995 & Year <= 2020) %>%
   group_by(Year, Month) %>%
   summarise(npgo_avg = mean(NPGO, na.rm = TRUE), .groups = "drop")
-
 ```
 
 #### ONI
 
-```{r}
+``` r
 ONI <- read.csv("Data/ONI_data.csv")
 monthly_avg_ONI <- ONI %>%
   pivot_longer(
@@ -265,12 +398,11 @@ monthly_avg_ONI <- ONI %>%
   arrange(Year, Month) %>% 
   filter(Year > 1994) %>% 
   filter(Year < 2020)
-
 ```
 
 #### Combine indices into single data frame
 
-```{r}
+``` r
 # non spatially separated 
 combined_monthly_indices <- monthly_avg_sl %>%
   full_join(monthly_avg_pdo, by = c("Year", "Month")) %>%
@@ -280,13 +412,38 @@ combined_monthly_indices <- monthly_avg_sl %>%
   filter(Year < 2019) %>%
   mutate(Month = month.abb[Month])
 head(combined_monthly_indices)
+```
 
+    ## # A tibble: 6 × 7
+    ##    Year Month mean_sl Date       mean_pdo npgo_avg oni_avg
+    ##   <dbl> <chr>   <dbl> <date>        <dbl>    <dbl>   <dbl>
+    ## 1  1995 Jan     2958. 1995-01-01   -0.768   -0.499    0.96
+    ## 2  1995 Feb     2851. 1995-02-01    0.049   -1.56     0.72
+    ## 3  1995 Mar     2923. 1995-03-01    0.571   -2.06     0.53
+    ## 4  1995 Apr     2730. 1995-04-01    0.67    -1.82     0.3 
+    ## 5  1995 May     2750. 1995-05-01    1.14    -1.50     0.14
+    ## 6  1995 Jun     2746. 1995-06-01    1.11    -1.05    -0.03
+
+``` r
 # Combined with ROMS with cuti 
 ROMS_CUTI_environmental_combined_all_yr <- ROMS_outputs %>%
   full_join(cuti_tidy, by = c("Year", "Month"))
 
 head(ROMS_CUTI_environmental_combined_all_yr)
+```
 
+    ## # A tibble: 6 × 11
+    ##    Year Month DO_avg DO_sd pH_avg  pH_sd Temperature_avg Temperature_sd
+    ##   <dbl> <chr>  <dbl> <dbl>  <dbl>  <dbl>           <dbl>          <dbl>
+    ## 1  1995 Jan     8.58 0.357   8.04 0.0237           12.0           0.490
+    ## 2  1995 Feb     7.82 0.666   8.01 0.0382           11.8           0.747
+    ## 3  1995 Mar     7.94 0.567   8.02 0.0357           12.0           0.809
+    ## 4  1995 Apr     5.81 0.902   7.88 0.0478            9.64          0.908
+    ## 5  1995 May     5.41 0.788   7.84 0.0377            9.24          0.902
+    ## 6  1995 Jun     5.00 0.762   7.80 0.0311            9.51          1.05 
+    ## # ℹ 3 more variables: UpwellWind_avg <dbl>, UpwellWind_sd <dbl>, CUTI <dbl>
+
+``` r
 df_all_parameters <- ROMS_CUTI_environmental_combined_all_yr %>% 
   full_join(combined_monthly_indices, by = c("Year", "Month"))%>% 
   select(-Date)
@@ -294,10 +451,23 @@ df_all_parameters <- ROMS_CUTI_environmental_combined_all_yr %>%
 head(df_all_parameters)
 ```
 
+    ## # A tibble: 6 × 15
+    ##    Year Month DO_avg DO_sd pH_avg  pH_sd Temperature_avg Temperature_sd
+    ##   <dbl> <chr>  <dbl> <dbl>  <dbl>  <dbl>           <dbl>          <dbl>
+    ## 1  1995 Jan     8.58 0.357   8.04 0.0237           12.0           0.490
+    ## 2  1995 Feb     7.82 0.666   8.01 0.0382           11.8           0.747
+    ## 3  1995 Mar     7.94 0.567   8.02 0.0357           12.0           0.809
+    ## 4  1995 Apr     5.81 0.902   7.88 0.0478            9.64          0.908
+    ## 5  1995 May     5.41 0.788   7.84 0.0377            9.24          0.902
+    ## 6  1995 Jun     5.00 0.762   7.80 0.0311            9.51          1.05 
+    ## # ℹ 7 more variables: UpwellWind_avg <dbl>, UpwellWind_sd <dbl>, CUTI <dbl>,
+    ## #   mean_sl <dbl>, mean_pdo <dbl>, npgo_avg <dbl>, oni_avg <dbl>
+
 ### Oceanographic Time Series (Figures 2 and 3)
 
 #### Figure 2. Nearshore Habitat From 1995 to 2018
-```{r}
+
+``` r
 ROMS_CUTI_environmental_combined_all_yr_plot <- ROMS_CUTI_environmental_combined_all_yr %>%
   filter(Year <= 2018) %>% 
   mutate(
@@ -362,13 +532,17 @@ fig2 <- ggplot(plot_df, aes(x = Date, y = value)) +
     legend.position = "none"
   )
 fig2
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+
+``` r
 ggsave("Figures/fig2.png", fig2, width = 7, height = 8, dpi = 300)
 ```
 
 #### Figure 3 Ocean Basin Indices Time Series
 
-```{r}
+``` r
 # make long data
 plot_df <- combined_monthly_indices %>%
   select(Date, mean_sl, mean_pdo, npgo_avg, oni_avg) %>%
@@ -444,13 +618,17 @@ fig_sup1 <- ggplot() +
   )
 
 fig_sup1
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
+
+``` r
 ggsave("Figures/figsup1.png", fig_sup1, width = 7, height = 7, dpi = 300)
 ```
 
 ## Monthly Correlation Analysis
 
-```{r}
+``` r
 # Join with environmental data
 full_data <- left_join(df_all_parameters, goph_recruit, by = "Year")
 
@@ -494,8 +672,7 @@ cor_data <- cor_data %>%
 
 #### Figure 4 - Correlation plot
 
-```{r}
-
+``` r
 desired_order <- c("DO","pH","Temperature", "Wind", "Upwelling", "PDO","Sea Level", "NPGO", "ONI")
 
 cor_data$Variable <- factor(cor_data$Variable, levels = desired_order)
@@ -521,7 +698,11 @@ fig4 <- ggplot(cor_data, aes(x = Month, y = correlation, color = significant, gr
         axis.text.x = element_text(angle = 45, hjust = 1),  # 
         title = element_text(size = 20))
 fig4
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
+
+``` r
 # Making a data frame with significant months 
 significant_months <- cor_data %>%
   filter(significant == TRUE)
@@ -533,7 +714,7 @@ ggsave("Figures/fig4.png", fig4, width = 12, height = 12, dpi = 300)
 
 ### PSLR averaging from Jan to Aug
 
-```{r}
+``` r
 # Average oceanographic parameters annually 
 df_all_parameters_feb_sept_average <- df_all_parameters %>% 
   filter(Month %in% c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug")) %>% 
@@ -582,40 +763,149 @@ df_pls <- data.frame(
 
 # Summary of model
 summary(plsr_model)
+```
 
+    ## Data:    X dimension: 24 6 
+    ##  Y dimension: 24 1
+    ## Fit method: kernelpls
+    ## Number of components considered: 6
+    ## 
+    ## VALIDATION: RMSEP
+    ## Cross-validated using 24 leave-one-out segments.
+    ##        (Intercept)  1 comps  2 comps  3 comps  4 comps  5 comps  6 comps
+    ## CV          0.3984   0.3588   0.3820   0.4322   0.4367   0.4243   0.3982
+    ## adjCV       0.3984   0.3579   0.3802   0.4291   0.4328   0.4203   0.3951
+    ## 
+    ## TRAINING: % variance explained
+    ##    1 comps  2 comps  3 comps  4 comps  5 comps  6 comps
+    ## X    74.37    84.61    90.20    94.71    98.39   100.00
+    ## Y    34.04    42.15    46.56    51.55    53.54    53.75
+
+``` r
 # Root Mean Squared Error of Prediction
 RMSEP(plsr_model)
+```
 
+    ##        (Intercept)  1 comps  2 comps  3 comps  4 comps  5 comps  6 comps
+    ## CV          0.3984   0.3588   0.3820   0.4322   0.4367   0.4243   0.3982
+    ## adjCV       0.3984   0.3579   0.3802   0.4291   0.4328   0.4203   0.3951
+
+``` r
 # Choose number of components based on RMSEP or % variance explained
 plot(RMSEP(plsr_model), legendpos = "topright")
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
+
+``` r
 # Variance explained
 explvar(plsr_model)  # % of variance explained in X by each component
+```
 
+    ##    Comp 1    Comp 2    Comp 3    Comp 4    Comp 5    Comp 6 
+    ## 74.373632 10.241253  5.580818  4.518561  3.677128  1.608607
+
+``` r
 # Component loadings: how original vars contribute to latent variables
 loadings(plsr_model)
+```
 
+    ## 
+    ## Loadings:
+    ##                  Comp 1 Comp 2 Comp 3 Comp 4 Comp 5 Comp 6
+    ## PDO               0.348  0.888 -0.484  0.265              
+    ## CUTI             -0.405        -0.273  0.886 -0.793 -0.148
+    ## Sea level height  0.430 -0.359 -0.640  0.318  0.173 -0.731
+    ## pH                0.441 -0.135  0.716 -0.330 -0.545       
+    ## DO                0.443 -0.335  0.851                     
+    ## Temperature       0.412 -0.272 -0.872  0.618 -0.289  0.658
+    ## 
+    ##                Comp 1 Comp 2 Comp 3 Comp 4 Comp 5 Comp 6
+    ## SS loadings     1.030  1.123  2.715  1.449  1.048  1.000
+    ## Proportion Var  0.172  0.187  0.452  0.242  0.175  0.167
+    ## Cumulative Var  0.172  0.359  0.811  1.053  1.227  1.394
+
+``` r
 # Scores: the new coordinate representation of observations
 pls_scores <- scores(plsr_model)
 
 # Biplot: visualize scores and loadings
 biplot(plsr_model, comps = 1:2)
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-16-2.png)<!-- -->
+
+``` r
 # Fit a linear model using first 2 PLS components
 lm_pls <- lm(dev ~ Comp1 + Comp2, data = df_pls)
 summary(lm_pls)
+```
 
+    ## 
+    ## Call:
+    ## lm(formula = dev ~ Comp1 + Comp2, data = df_pls)
+    ## 
+    ## Residuals:
+    ##      Min       1Q   Median       3Q      Max 
+    ## -0.46681 -0.27437 -0.00765  0.24984  0.47001 
+    ## 
+    ## Coefficients:
+    ##             Estimate Std. Error t value Pr(>|t|)   
+    ## (Intercept) -0.10863    0.06337  -1.714  0.10124   
+    ## Comp1        0.10933    0.03110   3.515  0.00206 **
+    ## Comp2        0.15014    0.08750   1.716  0.10092   
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## Residual standard error: 0.3105 on 21 degrees of freedom
+    ## Multiple R-squared:  0.4215, Adjusted R-squared:  0.3664 
+    ## F-statistic:  7.65 on 2 and 21 DF,  p-value: 0.003194
+
+``` r
 # check residuals 
 simulated_res <- simulateResiduals(fittedModel = lm_pls)
 plot(simulated_res) #these look good
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-16-3.png)<!-- -->
+
+``` r
 selectNcomp(plsr_model, method = "onesigma")
+```
 
+    ## [1] 0
+
+``` r
 lm_pls_1comp <- lm(dev ~ Comp1, data = df_pls)
 summary(lm_pls_1comp)
+```
 
+    ## 
+    ## Call:
+    ## lm(formula = dev ~ Comp1, data = df_pls)
+    ## 
+    ## Residuals:
+    ##      Min       1Q   Median       3Q      Max 
+    ## -0.54706 -0.18144 -0.08878  0.29660  0.47372 
+    ## 
+    ## Coefficients:
+    ##             Estimate Std. Error t value Pr(>|t|)   
+    ## (Intercept) -0.10863    0.06611  -1.643  0.11459   
+    ## Comp1        0.10933    0.03245   3.369  0.00277 **
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## Residual standard error: 0.3239 on 22 degrees of freedom
+    ## Multiple R-squared:  0.3404, Adjusted R-squared:  0.3104 
+    ## F-statistic: 11.35 on 1 and 22 DF,  p-value: 0.002766
+
+``` r
 plot(RMSEP(plsr_model), legendpos = "topright")
+```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-16-4.png)<!-- -->
+
+``` r
 # 1-component model is optimal, so we use opt.comp = 1
 vip_scores <- VIP(plsr_model, opt.comp = 1)
 
@@ -636,9 +926,11 @@ ggplot(vip_df, aes(x = reorder(Variable, VIP), y = VIP)) +
        y = "VIP Score")
 ```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-16-5.png)<!-- -->
+
 #### Combined figure for PSLR
 
-```{r}
+``` r
 # Extract predictor names from X
 predictor_names <- colnames(X)
 
@@ -757,13 +1049,36 @@ fig_c_repro <- ggplot(vip_df, aes(x = reorder(Variable, VIP), y = VIP)) +
 combined_plot <- fig_a_repro + fig_b_repro + fig_c_repro + 
   plot_layout(ncol = 3)
 combined_plot
+```
 
+    ## Warning in geom_segment(aes(x = 0, y = 0, xend = 0.6, yend = 0.4), arrow = arrow(length = unit(0.5, : All aesthetics have length 1, but the data has 6 rows.
+    ## ℹ Please consider using `annotate()` or provide this layer with data containing
+    ##   a single row.
+
+    ## Warning in geom_text(aes(x = 0.68, y = 0.45, label = "Recruitment"), color = "indianred", : All aesthetics have length 1, but the data has 6 rows.
+    ## ℹ Please consider using `annotate()` or provide this layer with data containing
+    ##   a single row.
+
+    ## `geom_smooth()` using formula = 'y ~ x'
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+
+``` r
 ggsave('Figures/fig5_repro.png', width = 10, height = 4, dpi = 300)
 ```
 
+    ## Warning in geom_segment(aes(x = 0, y = 0, xend = 0.6, yend = 0.4), arrow = arrow(length = unit(0.5, : All aesthetics have length 1, but the data has 6 rows.
+    ## ℹ Please consider using `annotate()` or provide this layer with data containing
+    ##   a single row.
+    ## All aesthetics have length 1, but the data has 6 rows.
+    ## ℹ Please consider using `annotate()` or provide this layer with data containing
+    ##   a single row.
+
+    ## `geom_smooth()` using formula = 'y ~ x'
+
 ## Best historical predictor - including CUTI just for fun
 
-```{r}
+``` r
 ## Join everything
 df_env_joined <- left_join(ROMS_CUTI_environmental_combined_all_yr, goph_recruit, by = "Year") %>%
   select(Year, Month, DO_avg, pH_avg, Temperature_avg, dev, CUTI) %>% 
@@ -840,7 +1155,17 @@ best_models <- model_results %>%
   ungroup()
 
 best_models
+```
 
+    ## # A tibble: 4 × 9
+    ##   driver       Month window model r.squared adj.r.squared model_p  slope slope_p
+    ##   <chr>        <ord> <chr>  <lis>     <dbl>         <dbl>   <dbl>  <dbl>   <dbl>
+    ## 1 CUTI_avg     Dec   6-mon… <lm>      0.435         0.410 4.51e-4 -2.59  4.51e-4
+    ## 2 DO_avg       Mar   3-mon… <lm>      0.273         0.240 8.75e-3  0.307 8.75e-3
+    ## 3 Temperature… Mar   singl… <lm>      0.258         0.224 1.14e-2  0.209 1.14e-2
+    ## 4 pH_avg       Mar   3-mon… <lm>      0.236         0.201 1.62e-2  2.94  1.62e-2
+
+``` r
 ## Get fitted values and confidence intervals for the best model of each driver
 best_predictions <- best_models %>%
   select(driver, Month, window, model, r.squared) %>%
@@ -861,7 +1186,7 @@ best_predictions <- best_models %>%
 
 #### Table with linear model outputs
 
-```{r}
+``` r
 month_abbs <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -932,8 +1257,19 @@ best_model_table <- best_models %>%
   )
 
 best_model_table
+```
 
+    ## # A tibble: 4 × 13
+    ##   Driver      `Selected window` Intercept  Slope    SE `t value` `Slope p`  `R²`
+    ##   <chr>       <chr>                 <dbl>  <dbl> <dbl>     <dbl>     <dbl> <dbl>
+    ## 1 CUTI        Jul-Dec mean           1.64 -2.59  0.628     -4.12  0.000451 0.435
+    ## 2 Dissolved … Jan-Mar mean          -2.25  0.307 0.107      2.88  0.00875  0.273
+    ## 3 Temperature Mar                   -2.39  0.209 0.076      2.76  0.0114   0.258
+    ## 4 pH          Jan-Mar mean         -23.4   2.94  1.13       2.60  0.0162   0.236
+    ## # ℹ 5 more variables: `Adj. R²` <dbl>, `p-value` <dbl>, AIC <dbl>, BIC <dbl>,
+    ## #   n <int>
 
+``` r
 best_model_table1 <- best_model_table %>% 
   select(Driver, `Selected window`, n, Slope, `SE`, `R²`, `p-value`)
 knitr::kable(
@@ -942,9 +1278,16 @@ knitr::kable(
 )
 ```
 
+| Driver           | Selected window |   n |  Slope |    SE |    R² |  p-value |
+|:-----------------|:----------------|----:|-------:|------:|------:|---------:|
+| CUTI             | Jul-Dec mean    |  24 | -2.588 | 0.628 | 0.435 | 0.000451 |
+| Dissolved Oxygen | Jan-Mar mean    |  24 |  0.307 | 0.107 | 0.273 | 0.008750 |
+| Temperature      | Mar             |  24 |  0.209 | 0.076 | 0.258 | 0.011400 |
+| pH               | Jan-Mar mean    |  24 |  2.941 | 1.130 | 0.236 | 0.016200 |
+
 #### Figure 6. Linear regression predictions
 
-```{r}
+``` r
 observed_dev <- df_env_joined %>%
   distinct(Year, dev)
 
@@ -976,7 +1319,18 @@ subtitle_df <- best_models %>%
   )
 
 subtitle_df
+```
 
+    ## # A tibble: 4 × 12
+    ##   driver       Month window model r.squared adj.r.squared model_p  slope slope_p
+    ##   <chr>        <ord> <chr>  <lis>     <dbl>         <dbl>   <dbl>  <dbl>   <dbl>
+    ## 1 CUTI_avg     Dec   6-mon… <lm>      0.435         0.410 4.51e-4 -2.59  4.51e-4
+    ## 2 DO_avg       Mar   3-mon… <lm>      0.273         0.240 8.75e-3  0.307 8.75e-3
+    ## 3 Temperature… Mar   singl… <lm>      0.258         0.224 1.14e-2  0.209 1.14e-2
+    ## 4 pH_avg       Mar   3-mon… <lm>      0.236         0.201 1.62e-2  2.94  1.62e-2
+    ## # ℹ 3 more variables: driver_name <chr>, month_name <chr>, label <glue>
+
+``` r
 label_positions <- best_predictions %>%
   group_by(driver) %>%
   filter(Year == max(Year)) %>%
@@ -1058,12 +1412,23 @@ ggplot() +
   theme(
     legend.position = "bottom"
   )
+```
 
+    ## Warning: Removed 2 rows containing missing values or values outside the scale range
+    ## (`geom_line()`).
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
+
+``` r
 ggsave('Figures/fig6.png', width = 8, height = 4, dpi = 300)
 ```
 
-#### Better at predicting negative vs. positive recruitment
-```{r}
+    ## Warning: Removed 2 rows containing missing values or values outside the scale range
+    ## (`geom_line()`).
+
+#### Better at predicting negative vs. positive recruitment
+
+``` r
 sign_performance <- best_models %>%
   mutate(
     augmented = map(model, augment)
@@ -1124,7 +1489,17 @@ loocv_summary <- loocv_results %>%
   )
 
 loocv_summary
+```
 
+    ## # A tibble: 4 × 8
+    ##   driver          accuracy    TP    TN    FP    FN sensitivity specificity
+    ##   <chr>              <dbl> <int> <int> <int> <int>       <dbl>       <dbl>
+    ## 1 CUTI_avg           0.75      5    13     3     3       0.625       0.812
+    ## 2 DO_avg             0.625     3    12     4     5       0.375       0.75 
+    ## 3 Temperature_avg    0.667     4    12     4     4       0.5         0.75 
+    ## 4 pH_avg             0.583     2    12     4     6       0.25        0.75
+
+``` r
 classification_table <- loocv_results %>%
   group_by(driver) %>%
   summarise(
@@ -1148,7 +1523,17 @@ classification_table <- loocv_results %>%
   select(Driver, n, Accuracy, Sensitivity, Specificity, TP, TN, FP, FN)
 
 classification_table
+```
 
+    ## # A tibble: 4 × 9
+    ##   Driver              n Accuracy Sensitivity Specificity    TP    TN    FP    FN
+    ##   <chr>           <int>    <dbl>       <dbl>       <dbl> <int> <int> <int> <int>
+    ## 1 CUTI_avg           24    0.75        0.625       0.812     5    13     3     3
+    ## 2 Dissolved Oxyg…    24    0.625       0.375       0.75      3    12     4     5
+    ## 3 Temperature        24    0.667       0.5         0.75      4    12     4     4
+    ## 4 pH                 24    0.583       0.25        0.75      2    12     4     6
+
+``` r
 final_table <- classification_table %>%
   mutate(
     Accuracy = round(Accuracy, 2),
@@ -1158,16 +1543,32 @@ final_table <- classification_table %>%
   select(Driver, Accuracy, Sensitivity, Specificity)
 
 final_table
+```
 
+    ## # A tibble: 4 × 4
+    ##   Driver           Accuracy Sensitivity Specificity
+    ##   <chr>               <dbl>       <dbl>       <dbl>
+    ## 1 CUTI_avg             0.75        0.62        0.81
+    ## 2 Dissolved Oxygen     0.62        0.38        0.75
+    ## 3 Temperature          0.67        0.5         0.75
+    ## 4 pH                   0.58        0.25        0.75
+
+``` r
 knitr::kable(
   final_table
 )
-
 ```
+
+| Driver           | Accuracy | Sensitivity | Specificity |
+|:-----------------|---------:|------------:|------------:|
+| CUTI_avg         |     0.75 |        0.62 |        0.81 |
+| Dissolved Oxygen |     0.62 |        0.38 |        0.75 |
+| Temperature      |     0.67 |        0.50 |        0.75 |
+| pH               |     0.58 |        0.25 |        0.75 |
 
 #### Saving as a .rds for future projections
 
-```{r}
+``` r
 best_model_objects <- best_models %>%
   select(driver, Month, window, model)
 
@@ -1176,16 +1577,22 @@ saveRDS(best_model_objects, "best_historical_recruitment_models.rds")
 
 ## Future Oceanographic Characteristics
 
-```{r}
+``` r
 full_palette <- wes_palette("Moonrise2", type = "discrete")
 full_palette
+```
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+
+``` r
 ESM_colors <- c("GFDL" = full_palette[1], 
                       "HADL" = full_palette[2],
                  "IPSL" = full_palette[4])
 ```
 
 #### Reading in csv that were cleaned in python
-```{r}
+
+``` r
 GFDL<- read.csv("Data/GFDL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
   mutate(ESM = "GFDL")
 
@@ -1204,8 +1611,24 @@ future_ocean <- bind_rows(
 head(future_ocean)
 ```
 
+    ##   Year Month   DO_avg     DO_sd   pH_avg      pH_sd Temperature_avg
+    ## 1 2000   Jan 7.830906 0.7109679 8.001350 0.05543053        12.42688
+    ## 2 2000   Feb 8.256494 0.5699230 8.024588 0.04323982        12.07983
+    ## 3 2000   Mar 6.531714 0.7534450 7.892045 0.05770435        11.53167
+    ## 4 2000   Apr 5.991125 0.7259535 7.838859 0.05004953        11.64637
+    ## 5 2000   May 4.454567 0.6773171 7.721081 0.04826660        10.62630
+    ## 6 2000   Jun 4.156804 0.8629587 7.682142 0.06980942        10.58630
+    ##   Temperature_sd  Chla_avg    Chla_sd  ESM
+    ## 1      0.7800164 0.2817904 0.08944624 GFDL
+    ## 2      0.7340823 0.3137034 0.07648981 GFDL
+    ## 3      0.9880996 0.3077663 0.14719978 GFDL
+    ## 4      0.9979311 0.3333313 0.17437308 GFDL
+    ## 5      1.0656167 0.2980853 0.26807229 GFDL
+    ## 6      1.4407156 0.3938553 0.30887824 GFDL
+
 #### Cleaning data for plotting
-```{r}
+
+``` r
 future_ocean2 <- future_ocean %>% 
   filter(Month %in% c("Jan", 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'))
 # annual means by ESM
@@ -1286,7 +1709,13 @@ final_plot <- p_do / p_ph / p_temp +
 final_plot
 ```
 
-```{r}
+    ## `geom_smooth()` using formula = 'y ~ x'
+    ## `geom_smooth()` using formula = 'y ~ x'
+    ## `geom_smooth()` using formula = 'y ~ x'
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+
+``` r
 # define periods
 historical <- future_ocean %>% filter(Year <= 2020)
 future <- future_ocean %>% filter(Year >= 2020)
@@ -1305,7 +1734,8 @@ summary_compare <- bind_rows(
 ```
 
 #### Figure 8
-```{r}
+
+``` r
 # 1. Define periods
 future_ocean2 <- future_ocean %>%
   mutate(
@@ -1383,7 +1813,10 @@ final_boxplot <- (p_do_box | p_ph_box | p_temp_box) +
   theme(legend.position = "")
 
 final_boxplot
-
-ggsave('Figures/fig8.png', width = 8, height = 4, dpi = 300)
 ```
 
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
+
+``` r
+ggsave('Figures/fig8.png', width = 8, height = 4, dpi = 300)
+```
