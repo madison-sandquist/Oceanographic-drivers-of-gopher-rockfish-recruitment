@@ -52,7 +52,7 @@ spatial_colors <- c("mid" = colors[1],
                  "all" = colors[2])
 ```
 
-## Stock Assessment Recruitment Deviations (Figure 1)
+## Retrieving Stock Assessment Files
 
 ``` r
 #recommended work flow, define model directory
@@ -158,6 +158,20 @@ pisco_index <- ggplot(PISCO_age0_index, aes(x = Year, y = obs)) +
   labs(title = "", y = "Index of Abundance", x = "Year") + 
   scale_x_continuous(limits = c(1987, max(PISCO_age0_index$Year))) +
   larger_axis_theme
+
+
+# ========== Combined TimeSeries Plot ==========
+# Then combine them
+fig1 <- stock_assessment / pisco_index + plot_layout(ncol = 1)
+fig1
+```
+
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+
+``` r
+ggsave("Figures/fig1.png", fig1, width = 7, height = 5, dpi = 300)
+
+
 # ============= Corrleation plot ===========================
 
 recruit_merged <- left_join(PISCO_age0_index, goph_recruit, by = "Year")
@@ -238,26 +252,13 @@ recruit_plot
 
     ## `geom_smooth()` using formula = 'y ~ x'
 
-![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
 
 ``` r
 cor_plot <- ggsave("Figures/corr_rec.png", recruit_plot, width = 4, height = 4, dpi = 300)
 ```
 
     ## `geom_smooth()` using formula = 'y ~ x'
-
-``` r
-# ========== Combined Plot ==========
-# Then combine them
-fig1 <- stock_assessment / pisco_index + plot_layout(ncol = 1)
-fig1
-```
-
-![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
-
-``` r
-ggsave("Figures/fig1.png", fig1, width = 7, height = 5, dpi = 300)
-```
 
 ## Cleaning and Combining Oceanographic Parameters
 
