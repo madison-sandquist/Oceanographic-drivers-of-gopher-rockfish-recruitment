@@ -5506,6 +5506,7 @@ ggsave("monthly_ROMS.png", width = 14, height = 10, dpi = 300)
 
 
 
+
 # Figures 
 ## Fig themes
 ```{r}
@@ -7714,7 +7715,6 @@ make_best_panel <- function(var_label) {
     # raw recruitment deviation
     geom_point(data = raw_dev, aes(Year, dev), color = "black", size = 2) +
     geom_line(data = raw_dev, aes(Year, dev), color = "black", linetype = "dashed") +
-    # best-model predictions for this variable (by region)
     geom_ribbon(
       data = dplyr::filter(preds, Variable == var_label),
       aes(x = Year, ymin = pred_lo, ymax = pred_hi, fill = region, group = region),
@@ -7782,6 +7782,7 @@ df_env_full <- ROMS_output_monthly_NMSA %>%
                    ~ mean(.x, na.rm = TRUE), .names = "mean_{.col}"),
             .groups = "drop")
 
+
 df_env_long <- df_env_full %>%
   pivot_longer(starts_with("mean_"),
                names_to = "Variable", values_to = "Value") %>%
@@ -7817,7 +7818,7 @@ preds <- best_r2_use %>%
 
     dat <- df_env_long %>%
       filter(region == r, Variable == v, Month == m) %>%
-      pick_predictor(wk) %>%
+      (wk) %>%
       filter(!is.na(pred_x), !is.na(dev))
 
     if (nrow(dat) < 3) return(tibble())  # guard against empty fits
@@ -7930,7 +7931,7 @@ best_r2_use <- best_r2 %>%
     Month = as.character(Month)
   )
 
-pick_predictor <- function(df, win_key) {
+ <- function(df, win_key) {
   if (win_key == "single_month") df %>% mutate(pred_x = Value)
   else if (win_key == "3_month") df %>% mutate(pred_x = roll3)
   else if (win_key == "6_month") df %>% mutate(pred_x = roll6)
