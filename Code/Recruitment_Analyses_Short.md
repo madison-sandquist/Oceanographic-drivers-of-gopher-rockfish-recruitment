@@ -1580,12 +1580,6 @@ saveRDS(best_model_objects, "best_historical_recruitment_models.rds")
 
 ``` r
 full_palette <- wes_palette("Moonrise2", type = "discrete")
-full_palette
-```
-
-![](Recruitment_Analyses_Short_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
-
-``` r
 ESM_colors <- c("GFDL" = full_palette[1], 
                       "HADL" = full_palette[2],
                  "IPSL" = full_palette[4])
