@@ -10,8 +10,8 @@ Repository for the code for the publication "Investigating Oceanographic Drivers
 ## Data Availability
 | Data| Source | Website/Contact |
 | --- | --- | --- |
-| Historical ROMS | Personal Contact | Jerome Fietcher |
-| ROMS Projections | Personal Contact | Jerome Fietcher |
+| Historical ROMS | Personal Contact | Jerome Fiechter |
+| ROMS Projections | Personal Contact | Jerome Fiechter |
 | CUTI | Jacox et al., 2018 | https://mjacox.com/upwelling-indices/ |
 | Sea Level Height | Caldwell et al., 2015 | https://uhslc.soest.hawaii.edu/data/ |
 | NPGO | Di Lorenzo et al., 2008 | https://psl.noaa.gov/data/timeseries/month/DS/NPGO/ |
