@@ -4,10 +4,9 @@ Repository for the code for the publication "Investigating Oceanographic Drivers
 
 ## Order of code 
 
-1. Oceanographic drivers historical is markdown for python code cleaning the netCDF files from a 3km ROMS and selecting for the spatial habitat of gopher rockfish. The ROMS outputs are availbile via person contact (see below). The product of this code is a csv which will be uploaded to the successive code
-2. The recruitment analyses is a markdown that contains all the analyses used in the paper, including the pearson correlations, the PLSR, and the linear modelling.
-3. The oceanograic drivers future is a markdown for python code cleaning the netCDF files from a 3km Future ROMS model and selecting for the spatial habitat of gopher rockfish.
-   
+1. "Oceanographic drivers historical" and "Oceanographic drivers future" are markdowns for python code cleaning the netCDF files from the ROMS outputs and selecting for the spatial habitat of gopher rockfish. The ROMS outputs are availbile via person contact (see below). The product of this code is a csv which will be uploaded to the successive code
+2. The recruitment analyses is a markdown that contains all the analyses used in the paper, including the pearson correlations, the PLSR, linear modelling, and future projections of recruitment. 
+
 ## Data Availability
 | Data| Source | Website/Contact |
 | --- | --- | --- |
