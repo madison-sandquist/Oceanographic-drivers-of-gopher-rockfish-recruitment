@@ -1,0 +1,2147 @@
+---
+title: "Manuscript Markdown — Revised (Reviewer Comments #1–3)"
+author: "Madison Sandquist"
+date: "2026-04-16"
+output: github_document
+---
+
+<!--
+=====================================================================
+REVISION NOTES — this file implements peer-review Major Comments #1-3.
+All original code is preserved; new/edited analysis is clearly marked
+with headers of the form "### [REV #x] ...".
+
+  #1 Multiple comparisons  -> Benjamini-Hochberg FDR correction added to
+     the monthly correlation screen; contiguous significant blocks flagged.
+  #2 Temporal autocorrelation -> Pyper & Peterman (1998) effective sample
+     size (modified Chelton) used to recompute correlation p-values.
+  #3 Model-selection ("forking paths") inflation -> full distribution of
+     r-squared across ALL candidate windows reported per driver, number of
+     candidates searched is stated, and LOO predictive R-squared is added
+     to contrast in-sample fit with out-of-sample skill.
+
+Reference for #2:
+  Pyper, B.J. & Peterman, R.M. (1998). Comparison of methods to account
+  for autocorrelation in correlation analyses of fish data.
+  Can. J. Fish. Aquat. Sci. 55: 2127-2140.
+=====================================================================
+-->
+
+<!--
+NOTE: base R only is used for the new statistics (p.adjust, acf, pt, lm),
+so no new package installs are required beyond what the original file loads.
+-->
+
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(
+  root.dir = "C:/Users/msand/OneDrive/Documents/GitHub/Oceanographic-drivers-of-gopher-rockfish-recruitment"
+)
+```
+
+### Libraries Needed
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(car)
+library(broom)
+library(lme4)
+library(lmerTest)
+library(DHARMa)
+library(emmeans) #pairwise comparisons
+library(influence.ME) #outliers
+library("wesanderson")
+#remotes::install_github("r4ss/r4ss")
+library(r4ss)
+library(zoo)
+library(patchwork)
+library(stringr)
+library(pls)
+library(plsVarSel)
+library(gridExtra)
+library(grid)
+library(slider)
+library(glue)
+```
+
+### Increasing font size and color for graphing
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# Set theme with larger axis titles and numbers
+larger_axis_theme <-
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black"),
+    legend.position = "none",
+    axis.title = element_text(size = 16),   # Axis titles
+    axis.text = element_text(size = 14),
+    title = element_text(size = 20)# Axis numbers
+  )
+
+colors <- wes_palette("AsteroidCity1", type = "discrete")
+
+```
+
+## Retrieving Stock Assessment Files
+```{r, warning=FALSE}
+#recommended work flow, define model directory
+# stock assessment file from PFMC website from the pfmc website 
+model_path <- "D:/GPHR_BYEL_POST_STAR_BASE_MODEL" # this is the stock assessment file saved on an external hard drive
+goph2019 <- r4ss::SS_output(model_path, printstats = FALSE)
+with.covar = T	 
+parameters <- goph2019$parameters
+goph_recruit <- goph2019$recruit
+
+#not filtered for graphing 
+goph_recruit_nf <-goph_recruit %>% 
+  filter(Yr >= 1987, Yr <= 2018) %>% 
+  rename(Year = Yr)
+
+#filter for years to match the ROMS outputs
+goph_recruit <-goph_recruit %>% 
+  filter(Yr >= 1995, Yr <= 2018) %>% 
+  rename(Year = Yr) 
+
+# the pisco data from the SA file
+PISCO_age0_index <- read_csv("Data/PISCO_age0_index.csv")
+```
+
+#### Figure 1 - Recruitment Deviation Time series
+```{r, warning=FALSE}
+# ========== Time series of recruitment devs from SA ==========
+stock_assessment <- ggplot(goph_recruit_nf, aes(x = Year, y = dev)) +
+  geom_line(color = "steelblue", size = 1.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 1)+
+  geom_vline(xintercept = 1995, linetype = "solid", color = "indianred")+
+  theme_classic() +
+  labs(title = "", y = "Recruitment Deviation", x = "Year") + 
+  larger_axis_theme
+# ========== Time series of PISCO index of abundance ==========
+pisco_index <- ggplot(PISCO_age0_index, aes(x = Year, y = obs)) +
+  geom_line(color = "navyblue", size = 1.2) +
+  theme_classic() +
+  labs(title = "", y = "Index of Abundance", x = "Year") + 
+  scale_x_continuous(limits = c(1987, max(PISCO_age0_index$Year))) +
+  larger_axis_theme
+
+
+# ========== Combined TimeSeries Plot ==========
+# Then combine them
+fig1 <- stock_assessment / pisco_index + plot_layout(ncol = 1)
+fig1
+ggsave("Figures/fig1.png", fig1, width = 7, height = 5, dpi = 300)
+
+
+# ============= Corrleation plot ===========================
+
+recruit_merged <- left_join(PISCO_age0_index, goph_recruit, by = "Year")
+summary(recruit_merged)
+
+# Fit a linear model 
+lm_recruit <- lm(dev ~ obs, data = recruit_merged)
+summary(lm_recruit)
+
+
+recruit_plot <- ggplot(recruit_merged, aes(x = obs, y = dev)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = TRUE, size = 1.2, color = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste0("p < 0.001 r² = 0.87"),
+           hjust = 1, vjust = 1, size = 5, fontface = "italic") +
+  labs(
+    x = "Index of Abundance (PISCO)",
+    y = "Recruitment Deviations (Stock Assessment)",
+    title = ""
+  ) +
+  larger_axis_theme +
+  theme(axis.title.y = element_blank(), 
+        theme(axis.text = element_text(size = 16)))+
+  theme_classic()
+recruit_plot
+cor_plot <- ggsave("Figures/corr_rec.png", recruit_plot, width = 4, height = 4, dpi = 300)
+```
+
+## Cleaning and Combining Oceanographic Parameters
+
+#### Ocean model inputs from ROMS
+
+This data has been clean in python previous (see Python file for cleaning code)
+
+```{r}
+# load in data frame that is just DO, pH, temperature, CHLa,
+df_ocean <- read_csv("Data/monthly_averages_allyear_1995_2020_ALL_41to34p4.csv")
+
+df_ocean <- df_ocean %>% 
+  select(-Chla_avg, -Chla_sd)
+
+# load in data frame that is wind
+df_wind <- read.csv("Data/monthly_upwelling_wind_offshore_averages_ALL_41to34p4.csv")
+
+# change coding of month to merge
+df_wind1 <- df_wind %>%
+  mutate(Month = case_when(
+    Month == "January"   ~ "Jan",
+    Month == "February"  ~ "Feb",
+    Month == "March"     ~ "Mar",
+    Month == "April"     ~ "Apr",
+    Month == "May"       ~ "May",
+    Month == "June"      ~ "Jun",
+    Month == "July"      ~ "Jul",
+    Month == "August"    ~ "Aug",
+    Month == "September" ~ "Sep",
+    Month == "October"   ~ "Oct",
+    Month == "November"  ~ "Nov",
+    Month == "December"  ~ "Dec",
+    TRUE ~ Month  # keep original if no match
+  ))
+
+# Combine into one data frame 
+ROMS_outputs <- left_join(df_ocean, df_wind1, by = c("Year", "Month"))
+```
+
+#### Coastal Upwelling Transport Index
+
+```{r}
+cuti <- read.csv("Data/CUTI_daily.csv") %>%
+  select(year, month, day,
+         X35N, X36N, X37N, X38N, X39N, X40N, X41N) %>%
+  filter(year < 2020)%>% 
+  filter(year > 1994)
+
+# 1) Monthly mean for each latitude (averaging over days)
+monthly_lat <- cuti %>%
+  group_by(year, month) %>%
+  summarise(across(starts_with("X"), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  pivot_longer(cols = starts_with("X"), names_to = "lat_col", values_to = "CUTI") %>%
+  mutate(lat = as.integer(str_extract(lat_col, "\\d+"))) %>%
+  filter(between(lat, 35, 41))
+
+# 2) One monthly mean across ALL latitudes 34–41 (equal weight per latitude)
+cuti_tidy <- monthly_lat %>%
+  group_by(year, month) %>%
+  summarise(CUTI = mean(CUTI, na.rm = TRUE), .groups = "drop") %>%
+  rename(Year = year, Month = month) %>%
+  mutate(
+    Month = month.abb[as.integer(Month)]
+  ) %>%
+  arrange(Year, match(Month, month.abb))
+```
+
+#### Sea Level
+
+```{r}
+sl <- read.csv("Data/SLH_FULL.csv") %>% 
+  filter(SL > 0)
+  
+monthly_avg_sl <- sl %>%
+  group_by(Year, Month) %>%
+  summarize(mean_sl = mean(SL, na.rm = TRUE), .groups = "drop") %>% 
+  filter(Year >= 1995 & Year <= 2020)
+
+```
+
+#### PDO
+
+```{r}
+pdo <- read.csv("Data/pdo.timeseries.sstens.csv")
+
+# Convert the Date column to Date type
+pdo$Date <- as.Date(pdo$Date)
+
+# Filter the dataframe between 1995 and 2018
+monthly_avg_pdo <- pdo %>%
+  filter(Date >= as.Date("1995-01-01") & Date <= as.Date("2020-12-01")) %>% 
+  rename(mean_pdo = PDO.from.Ensemble.SST.https...psl.noaa.gov..pdo..Using.EOF.from.1920.to.2014.for.N.Pacific..see.webpage.) %>% 
+    mutate(
+    Year = year(Date),
+    Month = month(Date)
+  )
+
+```
+
+#### NPGO
+
+```{r}
+npgo <- read.csv("Data/npgo.csv")
+
+monthly_avg_npgo <- npgo %>%
+  mutate(Date = mdy(Date),
+         Year = year(Date),
+         Month = month(Date)) %>%
+  filter(Year >= 1995 & Year <= 2020) %>%
+  group_by(Year, Month) %>%
+  summarise(npgo_avg = mean(NPGO, na.rm = TRUE), .groups = "drop")
+
+```
+
+#### ONI
+
+```{r}
+ONI <- read.csv("Data/ONI_data.csv")
+monthly_avg_ONI <- ONI %>%
+  pivot_longer(
+    cols = all_of(month.abb),  # Ensures only "Jan" to "Dec"
+    names_to = "Month_name",
+    values_to = "oni_avg"
+  ) %>%
+  mutate(
+    Month = match(Month_name, month.abb)
+  ) %>%
+  select(Year, Month, oni_avg) %>%
+  arrange(Year, Month) %>% 
+  filter(Year > 1994) %>% 
+  filter(Year < 2020)
+
+```
+
+#### Combine indices into single data frame
+
+```{r}
+# non spatially separated 
+combined_monthly_indices <- monthly_avg_sl %>%
+  full_join(monthly_avg_pdo, by = c("Year", "Month")) %>%
+  full_join(monthly_avg_npgo, by = c("Year", "Month")) %>%
+  full_join(monthly_avg_ONI, by = c("Year", "Month")) %>% 
+  arrange(Year, Month) %>%
+  filter(Year < 2019) %>%
+  mutate(Month = month.abb[Month])
+head(combined_monthly_indices)
+
+# Combined with ROMS with cuti 
+ROMS_CUTI_environmental_combined_all_yr <- ROMS_outputs %>%
+  full_join(cuti_tidy, by = c("Year", "Month"))
+
+head(ROMS_CUTI_environmental_combined_all_yr)
+
+df_all_parameters <- ROMS_CUTI_environmental_combined_all_yr %>% 
+  full_join(combined_monthly_indices, by = c("Year", "Month"))%>% 
+  select(-Date)
+
+head(df_all_parameters)
+```
+
+### Oceanographic Time Series (Figures 2 and 3)
+
+#### Figure 2. Nearshore Habitat From 1995 to 2018
+```{r}
+ROMS_CUTI_environmental_combined_all_yr_plot <- ROMS_CUTI_environmental_combined_all_yr %>%
+  filter(Year <= 2018) %>% 
+  mutate(
+    Month_num = match(Month, month.abb),
+    Date = as.Date(paste(Year, Month_num, 1, sep = "-"))
+  )
+
+plot_df <- ROMS_CUTI_environmental_combined_all_yr_plot %>%
+  select(Date,
+         DO_avg,
+         pH_avg,
+         Temperature_avg,
+         UpwellWind_avg, 
+         CUTI) %>%
+  pivot_longer(
+    cols = -Date,
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(
+    panel = dplyr::recode(variable,
+      DO_avg = "Dissolved Oxygen (mg/L)",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature (°C)",
+      UpwellWind_avg = "Wind (m/s)", 
+      CUTI = "Upwelling (m²/s)"
+    ),
+    panel = factor(panel,
+      levels = c("Dissolved Oxygen (mg/L)", "pH", "Temperature (°C)", "Wind (m/s)", "Upwelling (m²/s)")
+    )
+  )
+
+shade_df <- plot_df %>%
+  distinct(year = lubridate::year(Date)) %>%
+  mutate(
+    xmin = as.Date(paste0(year, "-01-01")),
+    xmax = as.Date(paste0(year, "-08-31"))
+  )
+
+
+fig2 <- ggplot(plot_df, aes(x = Date, y = value)) +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.4
+  ) +
+  geom_line(color = "black", linewidth = 0.7) +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  scale_x_date(
+    date_breaks = "3 years",
+    date_labels = "%Y",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(x = NULL, y = NULL) +
+  theme_bw(base_size = 14) +
+  theme(
+    strip.text = element_text(size = 16),
+    axis.text = element_text(size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+fig2
+
+ggsave("Figures/fig2.png", fig2, width = 7, height = 9, dpi = 300)
+```
+
+#### Figure 3 Ocean Basin Indices Time Series
+
+```{r}
+# make long data
+plot_df <- combined_monthly_indices %>%
+  select(Date, mean_sl, mean_pdo, npgo_avg, oni_avg) %>%
+  pivot_longer(
+    cols = c(npgo_avg, oni_avg, mean_pdo, mean_sl),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(
+    panel = dplyr::recode(
+      variable,
+      npgo_avg = "NPGO",
+      oni_avg  = "ONI",
+      mean_pdo = "PDO",
+      mean_sl  = "Sea Level Height (m)"
+    ),
+    panel = factor(panel, levels = c("NPGO", "ONI", "PDO", "Sea Level Height (m)")),
+    sign = case_when(
+      panel != "Sea Level Height" & value >= 0 ~ "pos",
+      panel != "Sea Level Height" & value <  0 ~ "neg",
+      TRUE ~ "line"
+    )
+  )
+
+shade_df <- plot_df %>%
+  distinct(year = lubridate::year(Date)) %>%
+  mutate(
+    xmin = as.Date(paste0(year, "-01-01")),
+    xmax = as.Date(paste0(year, "-08-31"))
+  )
+
+fig_sup1 <- ggplot() +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.5
+  ) +
+  # bar panels
+  geom_col(
+    data = filter(plot_df, panel != "Sea Level Height (m)"),
+    aes(Date, value, fill = sign),
+    width = 25
+  ) +
+  # sea level line
+  geom_line(
+    data = filter(plot_df, panel == "Sea Level Height (m)"),
+    aes(Date, value),
+    color = "black",
+    linewidth = 0.7
+  ) +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  scale_fill_manual(
+    values = c(pos = "indianred2", neg = "navy"),
+    guide = "none"
+  ) +
+  scale_x_date(
+    date_breaks = "3 years",
+    date_labels = "%Y",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(x = NULL, y = NULL) +
+  theme_bw(base_size = 14) +
+  theme(
+    strip.text = element_text(size = 16),
+    axis.text = element_text(size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+
+fig_sup1
+
+ggsave("Figures/figsup1.png", fig_sup1, width = 7, height = 9, dpi = 300)
+```
+
+## Monthly Correlation Analysis
+
+```{r}
+# Join with environmental data
+full_data <- left_join(df_all_parameters, goph_recruit, by = "Year")
+
+# List of variables you want to correlate with recruitment
+vars_to_correlate <- c("mean_sl", "mean_pdo", "npgo_avg", "oni_avg", "DO_avg", "pH_avg", "Temperature_avg", "CUTI", "UpwellWind_avg")
+
+# Calculate correlations by month
+cor_data <- full_data %>%
+  pivot_longer(cols = all_of(vars_to_correlate), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable, Month) %>%
+  summarise(
+    cor_test = list(cor.test(Value, dev, method = "pearson")),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    correlation = map_dbl(cor_test, ~ .x$estimate),
+    pval        = map_dbl(cor_test, ~ .x$p.value),
+    t_stat      = map_dbl(cor_test, ~ .x$statistic),
+    significant = pval < 0.05
+  ) %>%
+  select(-cor_test)
+
+
+
+# Order months properly
+cor_data$Month <- factor(cor_data$Month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+
+cor_data <- cor_data %>%
+  mutate(Variable = dplyr::recode(as.character(Variable),
+    "mean_pdo"        = "PDO",
+    "mean_sl"         = "Sea Level",
+    "npgo_avg"        = "NPGO",
+    "oni_avg"         = "ONI",
+    "DO_avg" = "DO",
+    "pH_avg"  = "pH",
+    "Temperature_avg" = "Temperature",
+    "UpwellWind_avg" = "Wind", 
+    "CUTI" = "Upwelling"
+  ))
+```
+
+### [REV #1 & #2] Multiple-comparison correction and autocorrelation-adjusted significance
+
+The block above computes ~96 Pearson tests (9 variables x 12 months, minus any
+all-NA cells) and flags raw p < 0.05. Reviewers asked us to (a) correct for
+multiple testing and (b) account for temporal autocorrelation, which inflates
+the apparent significance of correlations between two autocorrelated annual
+series (recruitment deviations and, especially, decadal indices like PDO).
+
+We do both here without altering the original `cor_data` object, so every
+downstream chunk that uses `cor_data` still runs unchanged. The augmented
+object is `cor_data_adj`.
+
+```{r rev12-setup}
+# ---- Effective sample size (Pyper & Peterman 1998, modified Chelton) ----
+# For two series X and Y of length N, the effective number of independent
+# observations is:
+#   1/Neff = 1/N + (2/N) * sum_{j=1}^{L} ((N-j)/N) * rho_X(j) * rho_Y(j)
+# where rho_.(j) are the lag-j autocorrelations. Following Pyper & Peterman,
+# the sum is truncated at L = floor(N/5) to reduce estimation bias, and Neff
+# is capped at N.
+effective_n <- function(x, y, lag_prop = 1/5) {
+  ok <- stats::complete.cases(x, y)
+  x  <- x[ok]; y <- y[ok]
+  n  <- length(x)
+  if (n < 5 || stats::sd(x) == 0 || stats::sd(y) == 0) return(as.numeric(n))
+  L  <- max(1L, floor(n * lag_prop))
+  # acf()[-1] drops the lag-0 term (which is 1); demean = TRUE by default
+  ax <- stats::acf(x, lag.max = L, plot = FALSE, demean = TRUE)$acf[-1]
+  ay <- stats::acf(y, lag.max = L, plot = FALSE, demean = TRUE)$acf[-1]
+  j  <- seq_len(L)
+  inv_neff <- 1/n + (2/n) * sum(((n - j)/n) * ax * ay)
+  neff <- 1 / inv_neff
+  # keep Neff in a sensible range: at least 3 (so df >= 1), at most n
+  min(max(neff, 3), n)
+}
+
+# p-value from a correlation r given an (effective) sample size
+p_from_r <- function(r, n_eff) {
+  df <- n_eff - 2
+  if (df <= 0 || is.na(r) || abs(r) >= 1) return(NA_real_)
+  t  <- r * sqrt(df / (1 - r^2))
+  2 * stats::pt(-abs(t), df)
+}
+```
+
+```{r rev12-compute}
+# Recompute correlations while retaining the per-year vectors so we can
+# estimate autocorrelation. Ordered by Year within each Variable x Month.
+cor_data_adj <- full_data %>%
+  dplyr::select(Year, Month, dplyr_dev = dev, dplyr::all_of(vars_to_correlate)) %>%
+  tidyr::pivot_longer(cols = dplyr::all_of(vars_to_correlate),
+                      names_to = "Variable", values_to = "Value") %>%
+  dplyr::rename(dev = dplyr_dev) %>%
+  dplyr::arrange(Variable, Month, Year) %>%
+  dplyr::group_by(Variable, Month) %>%
+  dplyr::summarise(
+    n_obs   = sum(stats::complete.cases(Value, dev)),
+    r       = tryCatch(suppressWarnings(stats::cor(Value, dev, use = "complete.obs")),
+                       error = function(e) NA_real_),
+    p_raw   = tryCatch(stats::cor.test(Value, dev)$p.value, error = function(e) NA_real_),
+    n_eff   = effective_n(Value, dev),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    p_autocorr = mapply(p_from_r, r, n_eff)
+  )
+
+# ---- Comment #1: Benjamini-Hochberg FDR across the whole screen ----
+# Applied to the raw p-values, and (Comment #1 + #2 combined) to the
+# autocorrelation-adjusted p-values.
+cor_data_adj <- cor_data_adj %>%
+  dplyr::mutate(
+    # n set to the number of tests actually performed (non-NA cells) so the
+    # FDR denominator is exact even if a Variable x Month cell was all-NA.
+    p_raw_fdr       = stats::p.adjust(p_raw,      method = "BH", n = sum(!is.na(p_raw))),
+    p_autocorr_fdr  = stats::p.adjust(p_autocorr, method = "BH", n = sum(!is.na(p_autocorr))),
+    sig_raw         = p_raw          < 0.05,
+    sig_fdr         = p_raw_fdr      < 0.05,   # survives FDR
+    sig_autocorr    = p_autocorr     < 0.05,   # survives autocorrelation adj.
+    sig_both        = p_autocorr_fdr < 0.05    # survives FDR + autocorrelation
+  )
+
+# Nice variable labels (same mapping used for cor_data) + month ordering
+recode_vars <- c(
+  "mean_pdo" = "PDO", "mean_sl" = "Sea Level", "npgo_avg" = "NPGO",
+  "oni_avg" = "ONI", "DO_avg" = "DO", "pH_avg" = "pH",
+  "Temperature_avg" = "Temperature", "UpwellWind_avg" = "Wind", "CUTI" = "Upwelling"
+)
+cor_data_adj <- cor_data_adj %>%
+  dplyr::mutate(
+    Variable = dplyr::recode(as.character(Variable), !!!recode_vars),
+    Month    = factor(Month, levels = month.abb)
+  )
+
+# How many tests were actually run (non-NA), and how many survive each filter?
+rev12_counts <- cor_data_adj %>%
+  dplyr::summarise(
+    n_tests            = sum(!is.na(p_raw)),
+    n_sig_raw          = sum(sig_raw,      na.rm = TRUE),
+    n_sig_fdr          = sum(sig_fdr,      na.rm = TRUE),
+    n_sig_autocorr     = sum(sig_autocorr, na.rm = TRUE),
+    n_sig_fdr_autocorr = sum(sig_both,     na.rm = TRUE)
+  )
+rev12_counts
+```
+
+```{r rev12-blocks}
+# ---- Comment #1: flag CONTIGUOUS blocks of raw-significant months ----
+# Reviewers noted that blocks of adjacent significant months (e.g. pH Jan-Apr;
+# Temperature Feb-Mar) are more credible than isolated single-month hits.
+# We label, for each variable, runs of consecutive months with raw p < 0.05
+# and mark those of length >= 2 as "blocks".
+cor_data_adj <- cor_data_adj %>%
+  dplyr::arrange(Variable, Month) %>%
+  dplyr::group_by(Variable) %>%
+  dplyr::mutate(
+    .sig = tidyr::replace_na(sig_raw, FALSE),
+    run_id = cumsum(.sig != dplyr::lag(.sig, default = FALSE)),
+  ) %>%
+  dplyr::group_by(Variable, run_id) %>%
+  dplyr::mutate(
+    block_len   = sum(.sig),
+    in_block    = .sig & block_len >= 2
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-.sig, -run_id)
+
+# Human-readable summary of contiguous significant blocks
+significant_blocks <- cor_data_adj %>%
+  dplyr::filter(in_block) %>%
+  dplyr::group_by(Variable, block_len) %>%
+  dplyr::summarise(months = paste(as.character(Month), collapse = ", "),
+                   .groups = "drop") %>%
+  dplyr::arrange(dplyr::desc(block_len))
+significant_blocks
+
+# Full augmented results table (rounded), useful for a supplementary table
+rev12_table <- cor_data_adj %>%
+  dplyr::transmute(
+    Variable, Month,
+    n = n_obs,
+    r = round(r, 3),
+    `N_eff` = round(n_eff, 1),
+    `p (raw)`            = signif(p_raw, 3),
+    `p (FDR)`            = signif(p_raw_fdr, 3),
+    `p (autocorr)`       = signif(p_autocorr, 3),
+    `p (FDR+autocorr)`   = signif(p_autocorr_fdr, 3),
+    in_block
+  ) %>%
+  dplyr::arrange(Variable, Month)
+knitr::kable(rev12_table)
+```
+
+#### Figure 4 - Correlation plot
+
+```{r}
+
+desired_order <- c("DO","pH","Temperature", "Wind", "Upwelling", "PDO","Sea Level", "NPGO", "ONI")
+
+cor_data$Variable <- factor(cor_data$Variable, levels = desired_order)
+
+fig4 <- ggplot(cor_data, aes(x = Month, y = correlation, color = significant, group = 1)) +
+  geom_point(size = 3) +
+ geom_line(size = 1) +
+  facet_wrap(~Variable, ncol = 2) +
+  geom_hline(yintercept = 0, linetype = "solid", size = 0.25) +
+  geom_hline(yintercept = c(-0.25, 0.25), linetype = "dashed", color = "black", size = 0.75) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "indianred")) +
+  theme_classic() +
+  labs(
+    title = "",
+    y = "Correlation with Recruitment",
+    color = "Significant"
+  )+   theme_bw() +
+  theme(strip.text = element_text(size = 12, face = "bold"), 
+        axis.line = element_line(color = "black"),
+        legend.position = "none",
+        axis.title = element_text(size = 16),   # Axis titles
+        axis.text = element_text(size = 14),
+        axis.text.x = element_text(angle = 45, hjust = 1),  # 
+        title = element_text(size = 20))
+fig4
+
+# Making a data frame with significant months
+significant_months <- cor_data %>%
+  filter(significant == TRUE)
+
+ggsave("Figures/fig4.png", fig4, width = 12, height = 12, dpi = 300)
+```
+
+### [REV #1 & #2] Figure 4 — significance tiers after correction
+
+Same panel layout as the original Figure 4, but each month is now shaded by how
+robust its correlation is: raw p < 0.05 only, surviving FDR, or surviving both
+FDR and the autocorrelation adjustment. Points inside a contiguous run of
+raw-significant months (length >= 2) are outlined, since reviewers view those
+blocks as more credible than isolated single-month hits.
+
+```{r rev12-fig4}
+cor_data_adj_plot <- cor_data_adj %>%
+  dplyr::mutate(
+    Variable = factor(Variable, levels = desired_order),
+    tier = dplyr::case_when(
+      sig_both     ~ "FDR + autocorrelation",
+      sig_fdr      ~ "Survives FDR",
+      sig_raw      ~ "Raw p < 0.05 only",
+      TRUE         ~ "n.s."
+    ),
+    tier = factor(tier, levels = c("n.s.", "Raw p < 0.05 only",
+                                   "Survives FDR", "FDR + autocorrelation"))
+  )
+
+tier_colors <- c(
+  "n.s."                  = "grey70",
+  "Raw p < 0.05 only"     = "#F4A261",
+  "Survives FDR"          = "#E76F51",
+  "FDR + autocorrelation" = "#9B2226"
+)
+
+fig4_rev <- ggplot(cor_data_adj_plot,
+                   aes(x = Month, y = r, group = 1)) +
+  geom_hline(yintercept = 0, linetype = "solid", size = 0.25) +
+  geom_hline(yintercept = c(-0.25, 0.25), linetype = "dashed",
+             color = "black", size = 0.5) +
+  geom_line(size = 0.8, color = "grey40") +
+  # black ring on points that fall inside a contiguous significant block
+  geom_point(data = dplyr::filter(cor_data_adj_plot, in_block),
+             aes(x = Month, y = r), shape = 21, size = 5,
+             fill = NA, color = "black", stroke = 1.1) +
+  geom_point(aes(color = tier), size = 3) +
+  facet_wrap(~Variable, ncol = 2) +
+  scale_color_manual(values = tier_colors, name = NULL, drop = FALSE) +
+  labs(y = "Correlation with Recruitment", x = NULL) +
+  theme_bw() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.line = element_line(color = "black"),
+    legend.position = "bottom",
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+fig4_rev
+
+ggsave("Figures/fig4_revised.png", fig4_rev, width = 12, height = 13, dpi = 300)
+```
+
+## PSLR Analysis
+
+### PSLR averaging from Jan to Aug
+
+```{r}
+# Average oceanographic parameters annually 
+df_all_parameters_feb_sept_average <- df_all_parameters %>% 
+  filter(Month %in% c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug")) %>% 
+  group_by(Year) %>%
+  summarise(across(
+    c(DO_avg, pH_avg, Temperature_avg, UpwellWind_avg,CUTI, mean_pdo, npgo_avg, mean_sl, oni_avg),
+    ~ mean(.x, na.rm = TRUE),
+    .names = "mean_{.col}"
+  )) %>%
+  ungroup()
+
+# combined 
+df_gopher_avg_mar_sept <-left_join(df_all_parameters_feb_sept_average,goph_recruit, by = "Year")
+
+df_gopher_avg_mar_sept <- df_gopher_avg_mar_sept %>% 
+  select(dev, mean_mean_pdo, mean_CUTI, mean_mean_sl,mean_pH_avg, mean_DO_avg, mean_Temperature_avg) %>% 
+  rename(deviation = dev, 
+         CUTI = mean_CUTI,
+         PDO = mean_mean_pdo,
+         "Sea level height" = mean_mean_sl, 
+         pH = mean_pH_avg, 
+         DO = mean_DO_avg, 
+         Temperature = mean_Temperature_avg)
+
+# Define X and Y together and filter complete cases
+X_raw <- df_gopher_avg_mar_sept %>% 
+  select(PDO, CUTI,  "Sea level height" ,pH, DO, Temperature)
+
+# Combine into one frame with response
+data_complete <- cbind(dev = df_gopher_avg_mar_sept$deviation, X_raw) %>% 
+  as.data.frame() %>% 
+  na.omit()  # remove rows with any NA
+
+# Now separate into X and Y
+Y <- data_complete$dev
+X <- as.matrix(data_complete %>% select(-dev))
+
+plsr_model <- plsr(Y ~ X, scale = TRUE, validation = "LOO")
+pls_scores <- scores(plsr_model)
+
+df_pls <- data.frame(
+  dev = Y,
+  Comp1 = pls_scores[, 1],
+  Comp2 = pls_scores[, 2]
+)
+
+# Summary of model
+summary(plsr_model)
+
+# Root Mean Squared Error of Prediction
+RMSEP(plsr_model)
+
+# Choose number of components based on RMSEP or % variance explained
+plot(RMSEP(plsr_model), legendpos = "topright")
+
+# Variance explained
+explvar(plsr_model)  # % of variance explained in X by each component
+
+# Component loadings: how original vars contribute to latent variables
+loadings(plsr_model)
+
+# Scores: the new coordinate representation of observations
+pls_scores <- scores(plsr_model)
+
+# Biplot: visualize scores and loadings
+biplot(plsr_model, comps = 1:2)
+
+# Fit a linear model using first 2 PLS components
+lm_pls <- lm(dev ~ Comp1 + Comp2, data = df_pls)
+summary(lm_pls)
+
+# check residuals 
+simulated_res <- simulateResiduals(fittedModel = lm_pls)
+plot(simulated_res) #these look good
+
+selectNcomp(plsr_model, method = "onesigma")
+
+lm_pls_1comp <- lm(dev ~ Comp1, data = df_pls)
+summary(lm_pls_1comp)
+
+plot(RMSEP(plsr_model), legendpos = "topright")
+
+# 1-component model is optimal, so we use opt.comp = 1
+vip_scores <- VIP(plsr_model, opt.comp = 1)
+
+# Turn into data frame properly
+vip_df <- data.frame(
+  Variable = names(vip_scores),
+  VIP = vip_scores
+)
+
+ggplot(vip_df, aes(x = reorder(Variable, VIP), y = VIP)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "indianred4", size = 1) +
+  geom_hline(yintercept = .8, linetype = "dashed", color = "indianred3", size = 1) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Variable Importance in Projection (VIP)",
+       x = "Predictor",
+       y = "VIP Score")
+```
+
+#### Combined figure for PSLR
+
+```{r}
+# Extract predictor names from X
+predictor_names <- colnames(X)
+
+# ========== FIGURE A: PLS BIPLOT ==========
+
+loadings_data <- loadings(plsr_model)[, 1:2]
+loadings_df <- data.frame(
+  Variable = rownames(loadings_data),
+  Component1 = loadings_data[, 1],
+  Component2 = loadings_data[, 2]
+)
+
+fig_a_repro <- ggplot(loadings_df, aes(x = Component1, y = Component2)) +
+  # Unit circle
+  geom_path(data = data.frame(
+    x = cos(seq(0, 2 * pi, length.out = 100)),
+    y = sin(seq(0, 2 * pi, length.out = 100))
+  ), aes(x = x, y = y), color = "black", linewidth = 1) +
+
+  # Arrows and labels
+  geom_segment(aes(x = 0, y = 0, xend = Component1, yend = Component2),
+               arrow = arrow(length = unit(0.3, "cm")), 
+               color = "steelblue", linewidth = 1.2) +
+  geom_text(aes(label = Variable), 
+            color = "steelblue", size = 4, fontface = "bold",
+            nudge_x = ifelse(loadings_df$Component1 > 0, 0.05, -0.05),
+            nudge_y = ifelse(loadings_df$Component2 > 0, 0.05, -0.05)) +
+  
+  # Optional: Response direction (illustrative only)
+  # You can calculate actual correlation direction if desired
+  geom_segment(aes(x = 0, y = 0, xend = 0.6, yend = 0.4), 
+               arrow = arrow(length = unit(0.5, "cm")), 
+               color = "indianred", linewidth = 1.5) +
+  geom_text(aes(x = 0.68, y = 0.45, label = "Recruitment"), 
+             color = "indianred", size = 4, fontface = "bold") +
+  
+  xlim(-1.1, 1.1) + ylim(-1.1, 1.1) +
+  labs(x = "Component 1", y = "Component 2", title = "Reproductive Season Average") +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  ) +
+  coord_fixed()
+# ========== FIGURE B: COMPONENT 1 vs RESPONSE ==========
+
+# Ensure response is matched to filtered data
+component1_scores <- scores(plsr_model)[, 1]
+response_var <- Y  # this Y comes from the filtered, complete-case data
+
+# Compute R² and p-value
+var_explained <- explvar(plsr_model)[1]
+lm_comp1 <- lm(response_var ~ component1_scores)
+lm_summary <- summary(lm_comp1)
+p_value <- lm_summary$coefficients[2, 4]
+r_squared <- lm_summary$r.squared
+
+# Format p-value
+p_text <- if (p_value < 0.001) {
+  "p < 0.001"
+} else if (p_value < 0.01) {
+  paste0("p = ", format(round(p_value, 3), nsmall = 3))
+} else {
+  paste0("p = ", format(round(p_value, 2), nsmall = 2))
+}
+
+annotation_text <- paste0("R² = ", format(round(r_squared, 3), nsmall = 3), "\n", p_text)
+
+fig_b_repro <- ggplot(data.frame(Component1 = component1_scores, Response = response_var),
+                aes(x = Component1, y = Response)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  geom_smooth(method = "lm", color = "steelblue", fill = "black", alpha = 0.3) +
+  annotate("text", 
+           x = Inf, y = Inf, 
+           label = annotation_text,
+           hjust = 1.3, vjust = 1.3,
+           size = 4, 
+           fontface = "bold",
+           color = "black") +
+  labs(
+    x = paste0("PLSR component 1 (", round(var_explained, 1), "%)"),
+    y = "Recruitment Deviations",
+    title = ""
+  ) +
+  theme_classic() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+
+# ========== FIGURE C: VIP PLOT ==========
+
+fig_c_repro <- ggplot(vip_df, aes(x = reorder(Variable, VIP), y = VIP)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "indianred4", size = 1) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "indianred3", size = 1) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "",
+       x = "Predictor",
+       y = "VIP Score") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+
+# ========== COMBINE ALL THREE FIGURES ==========
+combined_plot <- fig_a_repro + fig_b_repro + fig_c_repro + 
+  plot_layout(ncol = 3)
+combined_plot
+
+ggsave('Figures/fig5_repro.png', width = 10, height = 4, dpi = 300)
+```
+
+## Best historical predictor - including CUTI just for fun
+
+```{r}
+## Join everything
+df_env_joined <- left_join(ROMS_CUTI_environmental_combined_all_yr, goph_recruit, by = "Year") %>%
+  select(Year, Month, DO_avg, pH_avg, Temperature_avg, dev, CUTI) %>% 
+  rename('CUTI_avg' = "CUTI")
+
+## Puts drivers into long format and calculates rolling averages 
+### Calculates trailing rolling averages - so the rolling average ends in the month it states
+### EX - 3-month in "Jul" is May, June, July
+month_levels <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+df_long <- df_env_joined %>%
+  pivot_longer(
+    cols = c(DO_avg, pH_avg, Temperature_avg, CUTI_avg),
+    names_to = "driver",
+    values_to = "value"
+  ) %>%
+  mutate(
+    Month = factor(Month, levels = month_levels, ordered = TRUE),
+    Month_num = match(as.character(Month), month_levels)
+  ) %>%
+  arrange(driver, Year, Month_num)
+
+df_windows <- df_long %>%
+  group_by(driver, Year) %>%
+  arrange(Month_num, .by_group = TRUE) %>%
+  mutate(
+    value_1mo = value,
+    value_3mo = slide_dbl(value, mean, .before = 2, .complete = TRUE, na.rm = FALSE), 
+    value_6mo = slide_dbl(value, mean, .before = 6, .complete = TRUE, na.rm = FALSE)
+  ) %>%
+  ungroup()
+
+
+
+df_candidates <- df_windows %>%
+  select(Year, Month, dev, driver, value_1mo, value_3mo, value_6mo) %>%
+  pivot_longer(
+    cols = starts_with("value_"),
+    names_to = "window",
+    values_to = "predictor"
+  ) %>%
+  mutate(
+    window = dplyr::recode(
+      window,
+      value_1mo = "single month",
+      value_3mo = "3-month rolling avg",
+      value_6mo = "6-month rolling avg"
+    )
+  ) %>%
+  filter(!is.na(predictor), !is.na(dev))
+
+## Fit every model and choose best per driver
+model_results <- df_candidates %>%
+  group_by(driver, Month, window) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(dev ~ predictor, data = .x)),
+    glance = map(model, glance),
+    tidy = map(model, tidy)
+  ) %>%
+  mutate(
+    r.squared = map_dbl(glance, "r.squared"),
+    adj.r.squared = map_dbl(glance, "adj.r.squared"),
+    model_p = map_dbl(glance, "p.value"),
+    slope = map_dbl(tidy, ~ .x %>% filter(term == "predictor") %>% pull(estimate)),
+    slope_p = map_dbl(tidy, ~ .x %>% filter(term == "predictor") %>% pull(p.value))
+  ) %>%
+  select(driver, Month, window, model, r.squared, adj.r.squared, model_p, slope, slope_p)
+
+best_models <- model_results %>%
+  group_by(driver) %>%
+  slice_max(order_by = r.squared, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+best_models
+
+## Get fitted values and confidence intervals for the best model of each driver
+best_predictions <- best_models %>%
+  select(driver, Month, window, model, r.squared) %>%
+  left_join(df_candidates, by = c("driver", "Month", "window")) %>%
+  group_by(driver, Month, window, r.squared) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ lm(dev ~ predictor, data = .x)),
+    pred = map2(model, data, ~ {
+      preds <- predict(.x, newdata = .y, interval = "confidence")
+      bind_cols(.y, as_tibble(preds))
+    })
+  ) %>%
+  select(-data, -model) %>%
+  unnest(pred) %>%
+  ungroup()
+```
+
+### [REV #3] Reporting the full window search (model-selection inflation)
+
+The single-driver models above search single-month, 3-month, and 6-month
+windows across all months and keep the best-performing window per driver
+(`best_models`, via `slice_max` on r-squared). Selecting the strongest window
+from many candidates inflates the reported r-squared and understates
+uncertainty. As reviewers requested, we now (a) state how many candidate
+windows were searched per driver, (b) show the *full distribution* of
+in-sample r-squared across all of those candidates so the selected value can be
+read against the field it was chosen from, and (c) report a leave-one-out (LOO)
+*predictive* R-squared for each model, which — unlike in-sample r-squared —
+does not reward overfitting to a particular window.
+
+```{r rev3-loo-fn}
+# Leave-one-out predictive R^2 = 1 - PRESS/TSS.
+# Can be negative when the model predicts worse than the series mean.
+loo_r2 <- function(mod) {
+  d <- mod$model                 # columns: dev, predictor
+  n <- nrow(d)
+  if (n < 3L) return(NA_real_)
+  err <- vapply(seq_len(n), function(i) {
+    fit_i <- stats::lm(dev ~ predictor, data = d[-i, , drop = FALSE])
+    d$dev[i] - stats::predict(fit_i, newdata = d[i, , drop = FALSE])
+  }, numeric(1))
+  press <- sum(err^2)
+  tss   <- sum((d$dev - mean(d$dev))^2)
+  1 - press / tss
+}
+```
+
+```{r rev3-distribution}
+# In-sample r^2 AND out-of-sample (LOO) R^2 for every candidate window
+window_distribution <- model_results %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(loo_r2 = purrr::map_dbl(model, loo_r2))
+
+# (a) How many candidate windows were searched per driver
+candidate_counts <- window_distribution %>%
+  dplyr::count(driver, name = "n_candidate_windows")
+candidate_counts
+
+# Distribution of in-sample r^2 within each driver's candidate set
+r2_distribution_summary <- window_distribution %>%
+  dplyr::group_by(driver) %>%
+  dplyr::summarise(
+    n_windows   = dplyr::n(),
+    r2_min      = round(min(r.squared, na.rm = TRUE), 3),
+    r2_median   = round(stats::median(r.squared, na.rm = TRUE), 3),
+    r2_max      = round(max(r.squared, na.rm = TRUE), 3),
+    .groups = "drop"
+  )
+r2_distribution_summary
+
+# (c) The SELECTED best window, with in-sample vs LOO predictive R^2.
+# `shrinkage` = how much apparent skill is lost out-of-sample; a large value
+# is the signature of window-selection overfitting.
+best_with_loo <- window_distribution %>%
+  dplyr::group_by(driver) %>%
+  dplyr::slice_max(r.squared, n = 1, with_ties = FALSE) %>%
+  dplyr::ungroup() %>%
+  dplyr::left_join(candidate_counts, by = "driver") %>%
+  dplyr::transmute(
+    Driver = dplyr::recode(driver,
+      DO_avg = "Dissolved Oxygen", pH_avg = "pH",
+      Temperature_avg = "Temperature", CUTI_avg = "CUTI"),
+    `Selected window`      = window,
+    `Candidates searched`  = n_candidate_windows,
+    `r² (in-sample)`       = round(r.squared, 3),
+    `R² (LOO predictive)`  = round(loo_r2, 3),
+    `Shrinkage`            = round(r.squared - loo_r2, 3)
+  )
+knitr::kable(best_with_loo)
+```
+
+```{r rev3-figure}
+# (b) Full distribution of candidate r^2 per driver, with the selected
+# window highlighted. Makes the "forking paths" search visible to readers.
+best_points <- window_distribution %>%
+  dplyr::group_by(driver) %>%
+  dplyr::slice_max(r.squared, n = 1, with_ties = FALSE) %>%
+  dplyr::ungroup()
+
+driver_lab <- c(DO_avg = "Dissolved Oxygen", pH_avg = "pH",
+                Temperature_avg = "Temperature", CUTI_avg = "CUTI")
+
+fig_window_search <- ggplot(window_distribution,
+                            aes(x = r.squared,
+                                y = dplyr::recode(driver, !!!driver_lab))) +
+  geom_jitter(height = 0.12, width = 0, alpha = 0.35, size = 1.6,
+              color = "grey40") +
+  geom_point(data = best_points,
+             aes(x = r.squared,
+                 y = dplyr::recode(driver, !!!driver_lab)),
+             color = "#9B2226", size = 3.5) +
+  labs(
+    x = expression("Candidate-window r"^2),
+    y = NULL
+  ) +
+  theme_bw(base_size = 14) +
+  theme(panel.grid.minor = element_blank())
+fig_window_search
+
+ggsave("Figures/fig_window_search.png", fig_window_search,
+       width = 7, height = 4, dpi = 300)
+```
+
+#### Table with linear model outputs
+
+```{r}
+month_abbs <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+make_window_label <- function(month, window_type) {
+  month <- as.integer(month)
+  
+  if (window_type == "single month") {
+    return(month_abbs[month])
+  }
+  
+  if (window_type == "3-month rolling avg") {
+    return(paste0(month_abbs[month - 2], "-", month_abbs[month]))
+  }
+  
+  if (window_type == "6-month rolling avg") {
+    return(paste0(month_abbs[month - 5], "-", month_abbs[month]))
+  }
+  
+  return(NA_character_)
+}
+
+driver_labels <- c(
+  DO_avg = "Dissolved Oxygen",
+  pH_avg = "pH",
+  Temperature_avg = "Temperature", 
+  CUTI_avg = "CUTI"
+)
+
+best_model_table <- best_models %>%
+  mutate(
+    Month_num = as.integer(Month),
+    driver_name = dplyr::recode(driver, !!!driver_labels),
+    period = map2_chr(Month_num, window, make_window_label),
+    window_label = case_when(
+      window == "single month" ~ period,
+      TRUE ~ paste(period, "mean")
+    ),
+    tidy_out = map(model, tidy),
+    glance_out = map(model, glance)
+  ) %>%
+  mutate(
+    intercept = map_dbl(tidy_out, ~ .x %>% filter(term == "(Intercept)") %>% pull(estimate)),
+    slope = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(estimate)),
+    slope_se = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(std.error)),
+    slope_t = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(statistic)),
+    slope_p = map_dbl(tidy_out, ~ .x %>% filter(term == "predictor") %>% pull(p.value)),
+    r2 = map_dbl(glance_out, "r.squared"),
+    adj_r2 = map_dbl(glance_out, "adj.r.squared"),
+    model_p = map_dbl(glance_out, "p.value"),
+    AIC = map_dbl(glance_out, "AIC"),
+    BIC = map_dbl(glance_out, "BIC"),
+    n = map_dbl(glance_out, "nobs")
+  ) %>%
+  transmute(
+    Driver = driver_name,
+    `Selected window` = window_label,
+    Intercept = round(intercept, 3),
+    Slope = round(slope, 3),
+    `SE` = round(slope_se, 3),
+    `t value` = round(slope_t, 3),
+    `Slope p` = signif(slope_p, 3),
+    `R²` = round(r2, 3),
+    `Adj. R²` = round(adj_r2, 3),
+    `p-value` = signif(model_p, 3),
+    AIC = round(AIC, 2),
+    BIC = round(BIC, 2),
+    n = as.integer(n)
+  )
+
+best_model_table
+
+
+best_model_table1 <- best_model_table %>% 
+  select(Driver, `Selected window`, n, Slope, `SE`, `R²`, `p-value`)
+knitr::kable(
+  best_model_table1,
+  #caption = "Summary statistics for the strongest univariate linear models relating annual recruitment deviation to each environmental driver."
+)
+```
+
+#### Figure 6. Linear regression predictions
+
+```{r}
+observed_dev <- df_env_joined %>%
+  distinct(Year, dev)
+
+driver_labels <- c(
+  DO_avg = "Dissolved Oxygen",
+  pH_avg = "pH",
+  Temperature_avg = "Temperature", 
+  CUTI_avg = "CUTI"
+)
+
+driver_colors <- c(
+  Temperature_avg = "#E76F51",
+  DO_avg = "#4C78A8",
+  pH_avg = "#66A61E", 
+  CUTI_avg = "chocolate4"
+)
+
+month_labels <- c(
+  "1" = "Jan", "2" = "Feb", "3" = "Mar", "4" = "Apr",
+  "5" = "May", "6" = "Jun", "7" = "Jul", "8" = "Aug",
+  "9" = "Sep", "10" = "Oct", "11" = "Nov", "12" = "Dec"
+)
+
+subtitle_df <- best_models %>%
+  mutate(
+    driver_name = dplyr::recode(driver, !!!driver_labels),
+    month_name = dplyr::recode(as.character(Month), !!!month_labels),
+    label = glue::glue("{driver_name}: {month_name}, {window}, r²={round(r.squared, 3)}")
+  )
+
+subtitle_df
+
+label_positions <- best_predictions %>%
+  group_by(driver) %>%
+  filter(Year == max(Year)) %>%
+  distinct(driver, Year, fit) %>%
+  left_join(
+    best_models %>% select(driver, r.squared),
+    by = "driver"
+  ) %>%
+  mutate(
+    label = paste0("r² = ", round(r.squared, 2))
+  )
+
+label_positions <- label_positions %>%
+  arrange(driver) %>%
+  mutate(
+    y_offset = case_when(
+      driver == "DO_avg" ~ 0.25,
+      driver == "pH_avg" ~ -0.0,
+      driver == "Temperature_avg" ~ 0.12,
+      driver == "CUTI_avg" ~ -.1
+    )
+  )
+
+subtitle_text <- paste(subtitle_df$label, collapse = "\n")
+
+ggplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  
+  geom_ribbon(
+    data = best_predictions,
+    aes(x = Year, ymin = lwr, ymax = upr, fill = driver),
+    alpha = 0.2
+  ) +
+  
+  geom_line(
+    data = best_predictions,
+    aes(x = Year, y = fit, color = driver),
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+
+  geom_line(
+    data = observed_dev,
+    aes(x = Year, y = dev),
+    color = "black",
+    linewidth = 1
+  ) +
+  
+  geom_text(
+    data = label_positions,
+    aes(x = Year, y = fit + y_offset, label = label, color = driver),
+    hjust = -0.1,
+    size = 4,
+    show.legend = FALSE
+  ) +
+  
+  scale_color_manual(
+    values = driver_colors,
+    labels = driver_labels,
+    name = NULL
+  ) +
+  scale_fill_manual(
+    values = driver_colors,
+    labels = driver_labels,
+    name = NULL
+  ) +
+  
+  labs(
+    title = "",
+    x = "Year",
+    y = "Recruitment deviation"
+  ) +
+  
+  coord_cartesian(
+    xlim = c(min(observed_dev$Year), max(observed_dev$Year) + 1)
+  ) +
+  
+  theme_bw(base_size = 16) +
+  theme(
+    legend.position = "bottom"
+  )
+
+ggsave('Figures/fig6.png', width = 8, height = 4, dpi = 300)
+```
+
+#### Better at predicting negative vs. positive recruitment
+```{r}
+sign_performance <- best_models %>%
+  mutate(
+    augmented = map(model, augment)
+  ) %>%
+  unnest(augmented) %>%
+  mutate(
+    observed_sign = if_else(dev > 0, "positive", "negative"),
+    predicted_sign = if_else(.fitted > 0, "positive", "negative"),
+    correct = observed_sign == predicted_sign
+  )
+
+accuracy_summary <- sign_performance %>%
+  group_by(driver) %>%
+  summarise(
+    accuracy = mean(correct),
+    n = n()
+  )
+
+loocv_classification <- function(model) {
+  data <- model$model
+  n <- nrow(data)
+  
+  preds <- map_dbl(1:n, function(i) {
+    train <- data[-i, ]
+    test <- data[i, ]
+    
+    m <- lm(dev ~ predictor, data = train)
+    predict(m, newdata = test)
+  })
+  
+  tibble(
+    observed = data$dev,
+    predicted = preds
+  ) %>%
+    mutate(
+      observed_sign = if_else(observed > 0, "positive", "negative"),
+      predicted_sign = if_else(predicted > 0, "positive", "negative"),
+      correct = observed_sign == predicted_sign
+    )
+}
+
+loocv_results <- best_models %>%
+  mutate(
+    results = map(model, loocv_classification)
+  ) %>%
+  unnest(results)
+
+loocv_summary <- loocv_results %>%
+  group_by(driver) %>%
+  summarise(
+    accuracy = mean(correct),
+    TP = sum(predicted_sign == "positive" & observed_sign == "positive"),
+    TN = sum(predicted_sign == "negative" & observed_sign == "negative"),
+    FP = sum(predicted_sign == "positive" & observed_sign == "negative"),
+    FN = sum(predicted_sign == "negative" & observed_sign == "positive"),
+    sensitivity = TP / (TP + FN),
+    specificity = TN / (TN + FP)
+  )
+
+loocv_summary
+
+classification_table <- loocv_results %>%
+  group_by(driver) %>%
+  summarise(
+    n = n(),
+    TP = sum(predicted_sign == "positive" & observed_sign == "positive"),
+    TN = sum(predicted_sign == "negative" & observed_sign == "negative"),
+    FP = sum(predicted_sign == "positive" & observed_sign == "negative"),
+    FN = sum(predicted_sign == "negative" & observed_sign == "positive"),
+    
+    Accuracy = (TP + TN) / n,
+    Sensitivity = TP / (TP + FN),   # detects positive years
+    Specificity = TN / (TN + FP)    # detects negative years
+  ) %>%
+  mutate(
+    Driver = dplyr::recode(driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature"
+    )
+  ) %>%
+  select(Driver, n, Accuracy, Sensitivity, Specificity, TP, TN, FP, FN)
+
+classification_table
+
+final_table <- classification_table %>%
+  mutate(
+    Accuracy = round(Accuracy, 2),
+    Sensitivity = round(Sensitivity, 2),
+    Specificity = round(Specificity, 2)
+  ) %>%
+  select(Driver, Accuracy, Sensitivity, Specificity)
+
+final_table
+
+knitr::kable(
+  final_table
+)
+
+```
+
+#### Saving as a .rds for future projections
+
+```{r}
+best_model_objects <- best_models %>%
+  select(driver, Month, window, model)
+
+saveRDS(best_model_objects, "best_historical_recruitment_models.rds")
+```
+
+## Future Oceanographic Characteristics
+
+```{r}
+full_palette <- wes_palette("Moonrise2", type = "discrete")
+ESM_colors <- c("GFDL" = full_palette[1], 
+                      "HADL" = full_palette[2],
+                 "IPSL" = full_palette[4])
+```
+
+#### Reading in csv that were cleaned in python
+```{r}
+GFDL<- read.csv("Data/GFDL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
+  mutate(ESM = "GFDL")
+
+HADL <- read.csv("Data/HADL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
+  mutate(ESM = "HADL")
+
+IPSL <- read.csv("Data/IPSL_monthly_averages_allyear_2000_2100_ALL_41to34p4.csv") %>%
+  mutate(ESM = "IPSL")
+
+# Combine all into one dataframe
+future_ocean <- bind_rows(
+  GFDL, HADL,IPSL
+)
+
+# View result
+head(future_ocean)
+```
+
+#### read in future upwelling index from Mike's Paper 
+```{r}
+future_upwelling <- read.csv("Data/future_cuti_all_models.csv") %>% 
+  filter(year > 1999) %>% 
+  filter(between(latitude, 35, 41)) %>% 
+  group_by(model, year, month) %>%
+  summarise(upwelling_avg_lat = mean(upwelling_index, na.rm = TRUE),
+            .groups = "drop") %>% 
+  rename(
+    Year = year,
+    Month = month,
+    ESM = model,
+    CUTI = upwelling_avg_lat
+  ) %>% 
+  mutate(Month = month.abb[Month])%>%
+  mutate(ESM = toupper(ESM)) #makes it caps
+
+future_upwelling_avg <- future_upwelling %>%
+  filter(Month >= 7 & Month <= 12) %>%
+  group_by(model, year) %>%
+  summarise(upwelling_avg = mean(upwelling_index, na.rm = TRUE),
+            .groups = "drop")
+  
+```
+
+#### Cleaning data for plotting
+```{r}
+df_joined <- future_ocean %>%
+  left_join(future_upwelling, by = c("Year", "Month", "ESM"))
+
+future_ocean2 <- df_joined %>% 
+  filter(Month %in% c("Jan", 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'))
+# annual means by ESM
+
+future_annual <- future_ocean2 %>%
+  group_by(ESM, Year) %>%
+  summarize(
+    DO = mean(DO_avg, na.rm = TRUE),
+    pH = mean(pH_avg, na.rm = TRUE),
+    Temperature = mean(Temperature_avg, na.rm = TRUE),
+    Upwelling = mean(CUTI, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# long format
+future_long <- future_annual %>%
+  pivot_longer(
+    cols = c(DO, pH, Temperature),
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+# 1. Annual means by ESM
+future_annual <- future_ocean2 %>%
+  group_by(ESM, Year) %>%
+  summarize(
+    DO = mean(DO_avg, na.rm = TRUE),
+    pH = mean(pH_avg, na.rm = TRUE),
+    Temperature = mean(Temperature_avg, na.rm = TRUE),
+    Upwelling = mean(CUTI, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Common theme
+fig_theme <- theme_classic(base_size = 14) +
+  theme(
+    legend.position = "bottom"
+  )
+
+# 3. DO plot
+p_do <- ggplot(future_annual, aes(x = Year, y = DO, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = NULL,
+    y = "DO (mg/L)"
+  ) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 4. pH plot
+p_ph <- ggplot(future_annual, aes(x = Year, y = pH, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = NULL,
+    y = "pH"
+  ) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 5. Temperature plot
+p_temp <- ggplot(future_annual, aes(x = Year, y = Temperature, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = "Year",
+    y = expression(Temperature~(degree*C))
+  ) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 5. Upwelling plot
+p_upwell <- ggplot(future_annual, aes(x = Year, y = Upwelling, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = "Year",
+    y = "Upwelling (m2 s-1)") +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
+# 6. Combine
+final_plot <- p_do / p_ph / p_temp / p_upwell +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+final_plot
+```
+
+```{r}
+# define periods
+historical <- future_ocean2 %>% filter(Year <= 2020)
+future <- future_ocean2 %>% filter(Year >= 2020)
+
+# summarize
+summary_compare <- bind_rows(
+  historical %>% mutate(Period = "Historical"),
+  future %>% mutate(Period = "Future")
+) %>%
+  group_by(Period) %>%
+  summarize(
+    DO = mean(DO_avg, na.rm = TRUE),
+    pH = mean(pH_avg, na.rm = TRUE),
+    Temp = mean(Temperature_avg, na.rm = TRUE),
+    Upwelling = mean(CUTI, na.rm = TRUE)
+  )
+```
+
+#### Figure 8
+```{r}
+# 1. Define periods
+future_ocean3 <- future_ocean2 %>%
+  mutate(
+    Period = case_when(
+      Year <= 2020 ~ "2000-2020",
+      Year >= 2020 ~ "2020-2100",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Period)) %>% 
+  filter(Month %in% c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"))
+
+# 2. Long format
+future_long <- future_ocean3 %>%
+  pivot_longer(
+    cols = c(DO_avg, pH_avg, Temperature_avg, CUTI),
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Variable = dplyr::recode(Variable,
+      DO_avg = "DO",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature"
+    )
+  )
+
+# make sure order is correct
+future_long$Period <- factor(future_long$Period, levels = c("2000-2020", "2020-2100"))
+future_long$Variable <- factor(future_long$Variable, levels = c("DO", "pH", "Temperature", "CUTI"))
+
+fig_theme <- theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+make_boxplot <- function(var_name, y_lab) {
+  ggplot(
+    dplyr::filter(future_long, Variable == var_name),
+    aes(x = Period, y = Value, fill = ESM)
+  ) +
+    geom_boxplot(
+      position = position_dodge(width = 0.75),
+      outlier.shape = NA,
+      alpha = 0.7
+    ) +
+    geom_point(
+      aes(color = ESM),
+      position = position_jitterdodge(
+        jitter.width = 0.15,
+        dodge.width = 0.75
+      ),
+      alpha = 0.2,
+      size = 0.8
+    ) +
+    scale_color_manual(values = ESM_colors, name = "Model") +
+    scale_fill_manual(values = ESM_colors, name = "Model") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+    labs(
+      title = "",
+      x = NULL,
+      y = y_lab
+    ) +
+    fig_theme
+}
+
+p_do_box <- make_boxplot("DO", "DO (mg/L)")
+p_ph_box <- make_boxplot("pH", "pH")
+p_temp_box <- make_boxplot("Temperature", expression(Temperature~(degree*C)))
+p_upwell_box <- make_boxplot("CUTI", "CUTI (m2/s-1)")
+
+final_boxplot <- (p_do_box | p_ph_box | p_temp_box | p_upwell_box) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "")
+
+final_boxplot
+
+ggsave('Figures/fig8.png', width = 8, height = 4, dpi = 300)
+```
+
+# Future prediction of recruitment 
+#### Prep data 
+```{r}
+df_future_long <- df_joined %>%
+  select(Year, Month, DO_avg, pH_avg, Temperature_avg, CUTI, ESM) %>%
+  rename(CUTI_avg = CUTI) %>%
+  pivot_longer(
+    cols = c(DO_avg, pH_avg, Temperature_avg, CUTI_avg),
+    names_to = "driver",
+    values_to = "value"
+  ) %>%
+  mutate(
+    Month = factor(Month, levels = month_levels, ordered = TRUE),
+    Month_num = match(as.character(Month), month_levels)
+  ) %>%
+  arrange(ESM, driver, Year, Month_num)
+```
+
+#### create rolling windows
+```{r}
+df_future_windows <- df_future_long %>%
+  group_by(ESM, driver, Year) %>%
+  arrange(Month_num, .by_group = TRUE) %>%
+  mutate(
+    value_1mo = value,
+    value_3mo = slide_dbl(value, mean, .before = 2, .complete = TRUE),
+    value_6mo = slide_dbl(value, mean, .before = 6, .complete = TRUE)
+  ) %>%
+  ungroup()
+```
+
+#### convert to candiate predictors
+```{r}
+df_future_candidates <- df_future_windows %>%
+  pivot_longer(
+    cols = starts_with("value_"),
+    names_to = "window",
+    values_to = "predictor"
+  ) %>%
+  mutate(
+    window = dplyr::recode(
+      window,
+      value_1mo = "single month",
+      value_3mo = "3-month rolling avg",
+      value_6mo = "6-month rolling avg"
+    )
+  ) %>%
+  filter(!is.na(predictor))
+```
+
+#### join and predict
+```{r}
+df_future_matched <- df_future_candidates %>%
+  inner_join(
+    best_models %>% select(driver, Month, window, model),
+    by = c("driver", "Month", "window")
+  )
+
+future_predictions <- df_future_matched %>%
+  group_by(ESM, driver, Month, window) %>%
+  mutate(
+    pred_obj = map2(model, predictor, ~ {
+      as_tibble(predict(.x, newdata = data.frame(predictor = .y), interval = "confidence"))
+    })
+  ) %>%
+  unnest(pred_obj) %>%
+  filter(Year >= 2020)
+```
+
+#### Figure 7 - timeseries
+```{r}
+
+future_predictions_plot <- future_predictions %>%
+  mutate(
+    date = as.Date(paste(Year, Month, "01", sep = "-"), format = "%Y-%b-%d"),
+    driver = dplyr::recode(
+      driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      CUTI_avg = "CUTI"
+    )
+  )
+
+fig7 <- ggplot(future_predictions_plot, aes(x = date, y = fit, color = ESM, fill = ESM, group = ESM)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.15, color = NA) +
+  geom_line(linewidth = 0.8, alpha = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.6) +
+  facet_wrap(~ driver, scales = "free_y", ncol = 1) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  scale_fill_manual(values = ESM_colors, name = "Model") +
+  labs(
+    x = "Year",
+    y = "Predicted recruitment deviation"
+  ) + scale_x_date(
+    breaks = seq(as.Date("2020-01-01"), as.Date("2100-01-01"), by = "10 years"),
+    date_labels = "%Y"
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "bottom"
+  ) +
+  theme(legend.position = "")
+
+
+ggsave("Figures/fig7.png", fig7, width = 8, height = 10, dpi = 300)
+```
+
+```{r}
+baseline <- df_env_joined %>%
+  filter(Year >= 2000, Year <= 2020) %>%
+  summarise(mean_dev = mean(dev, na.rm = TRUE)) %>%
+  pull(mean_dev)
+
+future_predictions_plot <- future_predictions_plot %>%
+  mutate(change = fit - baseline)
+
+ggplot(future_predictions_plot, aes(x = date, y = change, color = ESM)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(~ driver, scales = "free_y") +
+  scale_color_manual(values = ESM_colors) +
+  labs(y = "Change in recruitment (relative to 2000–2020)", x = "Year") +
+  theme_bw()
+
+ensemble <- future_predictions_plot %>%
+  group_by(date, driver) %>%
+  summarise(
+    mean = mean(fit, na.rm = TRUE),
+    sd = sd(fit, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot() +
+  geom_ribbon(data = ensemble,
+              aes(x = date, ymin = mean - sd, ymax = mean + sd),
+              fill = "gray70", alpha = 0.5) +
+
+  geom_line(data = ensemble,
+            aes(x = date, y = mean),
+            color = "black", linewidth = 1.2) +
+
+  geom_line(data = future_predictions_plot,
+            aes(x = date, y = fit, color = ESM),
+            alpha = 0.5) +
+
+  facet_wrap(~ driver, scales = "free_y") +
+  scale_color_manual(values = ESM_colors) +
+  theme_bw()
+```
+```{r}
+hist_df <- df_env_joined %>%
+  filter(Year >= 2000, Year <= 2020) %>%
+  group_by(Year) %>%
+  summarise(value = mean(dev, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    Month = NA,
+    period = "2000–2020",
+    ESM = "Observed"
+  )
+
+hist_df <- tidyr::expand_grid(
+  hist_df,
+  driver = c("DO_avg", "pH_avg", "Temperature_avg", "CUTI_avg")
+)
+
+# Future
+future_df <- future_predictions %>%
+  filter(Year >= 2020) %>%
+  mutate(
+    period = "2020–2100",
+    value = fit
+  ) %>%
+  select(Year, Month, driver, value, period, ESM)
+
+combined_df <- bind_rows(hist_df, future_df)
+
+combined_df <- bind_rows(hist_df, future_df) %>%
+  mutate(
+    driver = dplyr::recode(
+      driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      CUTI_avg = "CUTI"
+    )
+  )
+
+
+ggplot(combined_df, aes(x = period, y = value, color = ESM)) +
+  
+  # boxplots
+  geom_boxplot(
+    aes(fill = ESM),
+    alpha = 0.2,
+    outlier.shape = NA,
+    position = position_dodge(width = 0.8)
+  ) +
+  
+  geom_jitter(
+  alpha = 0.4,
+  size = 1,
+  position = position_jitterdodge(
+    jitter.width = 0.15,
+    dodge.width = 0.8
+  )
+) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  
+  facet_wrap(~ driver, scales = "fixed") +
+  
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  scale_fill_manual(values = ESM_colors, name = "Model") +
+  
+  labs(
+    x = "",
+    y = "Recruitment deviation"
+  ) +
+  
+  theme_bw()
+```
+
+```{r}
+
+# Historical annual recruitment
+hist_plot_df <- df_env_joined %>%
+  filter(Year >= 2000, Year <= 2020) %>%
+  group_by(Year) %>%
+  summarise(value = mean(dev, na.rm = TRUE), .groups = "drop") %>%
+  mutate(group = "Historical")
+
+# Future annual predicted recruitment
+future_plot_df <- future_predictions %>%
+  filter(Year >= 2020) %>%
+  group_by(Year, ESM, driver) %>%
+  summarise(value = mean(fit, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    driver = dplyr::recode(
+      driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      CUTI_avg = "CUTI"
+    )
+  )
+
+# Shared y-axis limits
+y_lims <- range(c(hist_plot_df$value, future_plot_df$value), na.rm = TRUE)
+
+# Historical plot
+p_hist <- ggplot(hist_plot_df, aes(x = group, y = value)) +
+  geom_boxplot(fill = "gray80", color = "gray30", alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.12, alpha = 0.35, size = 1.2) +  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_cartesian(ylim = y_lims) +
+  labs(title = "Historical", x = "", y = "Recruitment deviation") +
+  theme_bw()
+
+# Function for future driver plots
+make_future_plot <- function(driver_name) {
+  ggplot(filter(future_plot_df, driver == driver_name),
+         aes(x = ESM, y = value, color = ESM, fill = ESM)) +
+    geom_boxplot(alpha = 0.2, outlier.shape = NA) +
+    geom_jitter(width = 0.12, alpha = 0.35, size = 1.2) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    scale_color_manual(values = ESM_colors, name = "Model") +
+    scale_fill_manual(values = ESM_colors, name = "Model") +
+    coord_cartesian(ylim = y_lims) +
+    labs(title = driver_name, x = "", y = "") +
+    theme_bw() +
+    theme(legend.position = "none")
+}
+
+p_cuti <- make_future_plot("CUTI")
+p_do   <- make_future_plot("Dissolved Oxygen")
+p_ph   <- make_future_plot("pH")
+p_temp <- make_future_plot("Temperature")
+
+
+p_hist <- p_hist + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_cuti <- p_cuti + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_do   <- p_do   + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_ph   <- p_ph   + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_temp <- p_temp + theme_bw(base_size = 16) + theme(legend.position = "none")
+
+
+ggsave("hist.png", p_hist, width = 4, height = 4, dpi = 300)
+ggsave("cuti.png", p_cuti, width = 4, height = 4, dpi = 300)
+ggsave("do.png",   p_do,   width = 4, height = 4, dpi = 300)
+ggsave("ph.png",   p_ph,   width = 4, height = 4, dpi = 300)
+ggsave("temp.png", p_temp, width = 4, height = 4, dpi = 300)
+```
+
+# Correlation between PDO and temperature, pH, and DO (supplemental figure 1)
+```{r}
+df_all_parameters_march <- df_all_parameters %>%  
+  filter(Month == "Mar")
+
+# Pearson correlations
+get_cor_info <- function(data, x, y = "mean_pdo") {
+  test <- cor.test(data[[x]], data[[y]], method = "pearson", use = "complete.obs")
+  
+  r <- round(test$estimate, 2)
+  pval <- test$p.value
+  
+  p_label <- ifelse(
+    pval < 0.001,
+    "p < 0.001",
+    paste0("p = ", signif(pval, 2))
+  )
+  
+  list(r = r, pval = pval, p_label = p_label)
+}
+
+info_ph <- get_cor_info(df_all_parameters_march, "pH_avg")
+info_do <- get_cor_info(df_all_parameters_march, "DO_avg")
+info_temp <- get_cor_info(df_all_parameters_march, "Temperature_avg")
+
+# Define base theme
+base_theme <- theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+# Plot 1: pH vs. PDO
+p1 <- ggplot(df_all_parameters_march, aes(x = pH_avg, y = mean_pdo)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2, color = "black") +
+  annotate(
+    "text", x = Inf, y = Inf,
+    label = paste0("r = ", info_ph$r, "\n", info_ph$p_label),
+    hjust = 1.1, vjust = 1.5, size = 5, fontface = "italic", color = "red"
+  ) +
+  labs(x = "pH", y = "PDO", title = "") +
+  base_theme
+
+# Plot 2: DO vs. PDO
+p2 <- ggplot(df_all_parameters_march, aes(x = DO_avg, y = mean_pdo)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2, color = "black") +
+  annotate(
+    "text", x = Inf, y = Inf,
+    label = paste0("r = ", info_do$r, "\n", info_do$p_label),
+    hjust = 1.1, vjust = 1.5, size = 5, fontface = "italic", color = "red"
+  ) +
+  labs(x = "Dissolved Oxygen (mg/L)", y = NULL, title = "") +
+  base_theme +
+  theme(axis.title.y = element_blank())
+
+# Plot 3: Temperature vs. PDO
+p3 <- ggplot(df_all_parameters_march, aes(x = Temperature_avg, y = mean_pdo)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2, color = "black") +
+  annotate(
+    "text", x = Inf, y = Inf,
+    label = paste0("r = ", info_temp$r, "\n", info_temp$p_label),
+    hjust = 1.1, vjust = 1.5, size = 5, fontface = "italic", color = "red"
+  ) +
+  labs(x = "Temperature (°C)", y = NULL, title = "") +
+  base_theme +
+  theme(axis.title.y = element_blank())
+
+# Combine with patchwork
+(p1 | p2 | p3) +
+  plot_annotation(
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+    )
+  )
+ggsave("PDO_ROMS_correlation.png", width = 8, height = 4, dpi = 300, bg = "white")
+
+```
+

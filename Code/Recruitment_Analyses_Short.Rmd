@@ -321,14 +321,14 @@ plot_df <- ROMS_CUTI_environmental_combined_all_yr_plot %>%
   ) %>%
   mutate(
     panel = dplyr::recode(variable,
-      DO_avg = "Dissolved Oxygen",
+      DO_avg = "Dissolved Oxygen (mg/L)",
       pH_avg = "pH",
-      Temperature_avg = "Temperature",
-      UpwellWind_avg = "Vwind", 
-      CUTI = "Upwelling"
+      Temperature_avg = "Temperature (°C)",
+      UpwellWind_avg = "Wind (m/s)", 
+      CUTI = "Upwelling (m²/s)"
     ),
     panel = factor(panel,
-      levels = c("Dissolved Oxygen", "pH", "Temperature", "Vwind", "Upwelling")
+      levels = c("Dissolved Oxygen (mg/L)", "pH", "Temperature (°C)", "Wind (m/s)", "Upwelling (m²/s)")
     )
   )
 
@@ -359,13 +359,13 @@ fig2 <- ggplot(plot_df, aes(x = Date, y = value)) +
   theme_bw(base_size = 14) +
   theme(
     strip.text = element_text(size = 16),
-    axis.text = element_text(size = 11),
+    axis.text = element_text(size = 14),
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "none"
   )
 fig2
 
-ggsave("Figures/fig2.png", fig2, width = 7, height = 8, dpi = 300)
+ggsave("Figures/fig2.png", fig2, width = 7, height = 9, dpi = 300)
 ```
 
 #### Figure 3 Ocean Basin Indices Time Series
@@ -385,9 +385,9 @@ plot_df <- combined_monthly_indices %>%
       npgo_avg = "NPGO",
       oni_avg  = "ONI",
       mean_pdo = "PDO",
-      mean_sl  = "Sea Level Height"
+      mean_sl  = "Sea Level Height (m)"
     ),
-    panel = factor(panel, levels = c("NPGO", "ONI", "PDO", "Sea Level Height")),
+    panel = factor(panel, levels = c("NPGO", "ONI", "PDO", "Sea Level Height (m)")),
     sign = case_when(
       panel != "Sea Level Height" & value >= 0 ~ "pos",
       panel != "Sea Level Height" & value <  0 ~ "neg",
@@ -412,13 +412,13 @@ fig_sup1 <- ggplot() +
   ) +
   # bar panels
   geom_col(
-    data = filter(plot_df, panel != "Sea Level Height"),
+    data = filter(plot_df, panel != "Sea Level Height (m)"),
     aes(Date, value, fill = sign),
     width = 25
   ) +
   # sea level line
   geom_line(
-    data = filter(plot_df, panel == "Sea Level Height"),
+    data = filter(plot_df, panel == "Sea Level Height (m)"),
     aes(Date, value),
     color = "black",
     linewidth = 0.7
@@ -436,18 +436,15 @@ fig_sup1 <- ggplot() +
   labs(x = NULL, y = NULL) +
   theme_bw(base_size = 14) +
   theme(
-    panel.grid.major = element_line(color = "grey85", linewidth = 0.5),
-    panel.grid.minor = element_line(color = "grey92", linewidth = 0.3),
-    strip.background = element_rect(fill = "grey80", color = "grey40"),
-    strip.text = element_text(face = "bold", size = 18),
+    strip.text = element_text(size = 16),
+    axis.text = element_text(size = 14),
     axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.spacing = unit(0.15, "lines"),
     legend.position = "none"
   )
 
 fig_sup1
 
-ggsave("Figures/figsup1.png", fig_sup1, width = 7, height = 7, dpi = 300)
+ggsave("Figures/figsup1.png", fig_sup1, width = 7, height = 9, dpi = 300)
 ```
 
 ## Monthly Correlation Analysis
@@ -1205,17 +1202,47 @@ future_ocean <- bind_rows(
 head(future_ocean)
 ```
 
+#### read in future upwelling index from Mike's Paper 
+```{r}
+future_upwelling <- read.csv("Data/future_cuti_all_models.csv") %>% 
+  filter(year > 1999) %>% 
+  filter(between(latitude, 35, 41)) %>% 
+  group_by(model, year, month) %>%
+  summarise(upwelling_avg_lat = mean(upwelling_index, na.rm = TRUE),
+            .groups = "drop") %>% 
+  rename(
+    Year = year,
+    Month = month,
+    ESM = model,
+    CUTI = upwelling_avg_lat
+  ) %>% 
+  mutate(Month = month.abb[Month])%>%
+  mutate(ESM = toupper(ESM)) #makes it caps
+
+future_upwelling_avg <- future_upwelling %>%
+  filter(Month >= 7 & Month <= 12) %>%
+  group_by(model, year) %>%
+  summarise(upwelling_avg = mean(upwelling_index, na.rm = TRUE),
+            .groups = "drop")
+  
+```
+
 #### Cleaning data for plotting
 ```{r}
-future_ocean2 <- future_ocean %>% 
+df_joined <- future_ocean %>%
+  left_join(future_upwelling, by = c("Year", "Month", "ESM"))
+
+future_ocean2 <- df_joined %>% 
   filter(Month %in% c("Jan", 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'))
 # annual means by ESM
+
 future_annual <- future_ocean2 %>%
   group_by(ESM, Year) %>%
   summarize(
     DO = mean(DO_avg, na.rm = TRUE),
     pH = mean(pH_avg, na.rm = TRUE),
     Temperature = mean(Temperature_avg, na.rm = TRUE),
+    Upwelling = mean(CUTI, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -1228,12 +1255,13 @@ future_long <- future_annual %>%
   )
 
 # 1. Annual means by ESM
-future_annual <- future_ocean %>%
+future_annual <- future_ocean2 %>%
   group_by(ESM, Year) %>%
   summarize(
     DO = mean(DO_avg, na.rm = TRUE),
     pH = mean(pH_avg, na.rm = TRUE),
     Temperature = mean(Temperature_avg, na.rm = TRUE),
+    Upwelling = mean(CUTI, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -1279,8 +1307,19 @@ p_temp <- ggplot(future_annual, aes(x = Year, y = Temperature, color = ESM)) +
   scale_color_manual(values = ESM_colors, name = "Model") +
   fig_theme
 
+# 5. Upwelling plot
+p_upwell <- ggplot(future_annual, aes(x = Year, y = Upwelling, color = ESM)) +
+  geom_line(linewidth = 1, alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.8) +
+  labs(
+    title = "",
+    x = "Year",
+    y = "Upwelling (m2 s-1)") +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  fig_theme
+
 # 6. Combine
-final_plot <- p_do / p_ph / p_temp +
+final_plot <- p_do / p_ph / p_temp / p_upwell +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
 
@@ -1289,8 +1328,8 @@ final_plot
 
 ```{r}
 # define periods
-historical <- future_ocean %>% filter(Year <= 2020)
-future <- future_ocean %>% filter(Year >= 2020)
+historical <- future_ocean2 %>% filter(Year <= 2020)
+future <- future_ocean2 %>% filter(Year >= 2020)
 
 # summarize
 summary_compare <- bind_rows(
@@ -1301,14 +1340,15 @@ summary_compare <- bind_rows(
   summarize(
     DO = mean(DO_avg, na.rm = TRUE),
     pH = mean(pH_avg, na.rm = TRUE),
-    Temp = mean(Temperature_avg, na.rm = TRUE)
+    Temp = mean(Temperature_avg, na.rm = TRUE),
+    Upwelling = mean(CUTI, na.rm = TRUE)
   )
 ```
 
 #### Figure 8
 ```{r}
 # 1. Define periods
-future_ocean2 <- future_ocean %>%
+future_ocean3 <- future_ocean2 %>%
   mutate(
     Period = case_when(
       Year <= 2020 ~ "2000-2020",
@@ -1320,9 +1360,9 @@ future_ocean2 <- future_ocean %>%
   filter(Month %in% c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"))
 
 # 2. Long format
-future_long <- future_ocean2 %>%
+future_long <- future_ocean3 %>%
   pivot_longer(
-    cols = c(DO_avg, pH_avg, Temperature_avg),
+    cols = c(DO_avg, pH_avg, Temperature_avg, CUTI),
     names_to = "Variable",
     values_to = "Value"
   ) %>%
@@ -1336,7 +1376,7 @@ future_long <- future_ocean2 %>%
 
 # make sure order is correct
 future_long$Period <- factor(future_long$Period, levels = c("2000-2020", "2020-2100"))
-future_long$Variable <- factor(future_long$Variable, levels = c("DO", "pH", "Temperature"))
+future_long$Variable <- factor(future_long$Variable, levels = c("DO", "pH", "Temperature", "CUTI"))
 
 fig_theme <- theme_classic(base_size = 14) +
   theme(
@@ -1378,13 +1418,390 @@ make_boxplot <- function(var_name, y_lab) {
 p_do_box <- make_boxplot("DO", "DO (mg/L)")
 p_ph_box <- make_boxplot("pH", "pH")
 p_temp_box <- make_boxplot("Temperature", expression(Temperature~(degree*C)))
+p_upwell_box <- make_boxplot("CUTI", "CUTI (m2/s-1)")
 
-final_boxplot <- (p_do_box | p_ph_box | p_temp_box) +
+final_boxplot <- (p_do_box | p_ph_box | p_temp_box | p_upwell_box) +
   plot_layout(guides = "collect") &
   theme(legend.position = "")
 
 final_boxplot
 
 ggsave('Figures/fig8.png', width = 8, height = 4, dpi = 300)
+```
+
+# Future prediction of recruitment 
+#### Prep data 
+```{r}
+df_future_long <- df_joined %>%
+  select(Year, Month, DO_avg, pH_avg, Temperature_avg, CUTI, ESM) %>%
+  rename(CUTI_avg = CUTI) %>%
+  pivot_longer(
+    cols = c(DO_avg, pH_avg, Temperature_avg, CUTI_avg),
+    names_to = "driver",
+    values_to = "value"
+  ) %>%
+  mutate(
+    Month = factor(Month, levels = month_levels, ordered = TRUE),
+    Month_num = match(as.character(Month), month_levels)
+  ) %>%
+  arrange(ESM, driver, Year, Month_num)
+```
+
+#### create rolling windows
+```{r}
+df_future_windows <- df_future_long %>%
+  group_by(ESM, driver, Year) %>%
+  arrange(Month_num, .by_group = TRUE) %>%
+  mutate(
+    value_1mo = value,
+    value_3mo = slide_dbl(value, mean, .before = 2, .complete = TRUE),
+    value_6mo = slide_dbl(value, mean, .before = 6, .complete = TRUE)
+  ) %>%
+  ungroup()
+```
+
+#### convert to candiate predictors
+```{r}
+df_future_candidates <- df_future_windows %>%
+  pivot_longer(
+    cols = starts_with("value_"),
+    names_to = "window",
+    values_to = "predictor"
+  ) %>%
+  mutate(
+    window = dplyr::recode(
+      window,
+      value_1mo = "single month",
+      value_3mo = "3-month rolling avg",
+      value_6mo = "6-month rolling avg"
+    )
+  ) %>%
+  filter(!is.na(predictor))
+```
+
+#### join and predict
+```{r}
+df_future_matched <- df_future_candidates %>%
+  inner_join(
+    best_models %>% select(driver, Month, window, model),
+    by = c("driver", "Month", "window")
+  )
+
+future_predictions <- df_future_matched %>%
+  group_by(ESM, driver, Month, window) %>%
+  mutate(
+    pred_obj = map2(model, predictor, ~ {
+      as_tibble(predict(.x, newdata = data.frame(predictor = .y), interval = "confidence"))
+    })
+  ) %>%
+  unnest(pred_obj) %>%
+  filter(Year >= 2020)
+```
+
+#### Figure 7 - timeseries
+```{r}
+
+future_predictions_plot <- future_predictions %>%
+  mutate(
+    date = as.Date(paste(Year, Month, "01", sep = "-"), format = "%Y-%b-%d"),
+    driver = dplyr::recode(
+      driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      CUTI_avg = "CUTI"
+    )
+  )
+
+fig7 <- ggplot(future_predictions_plot, aes(x = date, y = fit, color = ESM, fill = ESM, group = ESM)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.15, color = NA) +
+  geom_line(linewidth = 0.8, alpha = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.6) +
+  facet_wrap(~ driver, scales = "free_y", ncol = 1) +
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  scale_fill_manual(values = ESM_colors, name = "Model") +
+  labs(
+    x = "Year",
+    y = "Predicted recruitment deviation"
+  ) + scale_x_date(
+    breaks = seq(as.Date("2020-01-01"), as.Date("2100-01-01"), by = "10 years"),
+    date_labels = "%Y"
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "bottom"
+  ) +
+  theme(legend.position = "")
+
+
+ggsave("Figures/fig7.png", fig7, width = 8, height = 10, dpi = 300)
+```
+
+```{r}
+baseline <- df_env_joined %>%
+  filter(Year >= 2000, Year <= 2020) %>%
+  summarise(mean_dev = mean(dev, na.rm = TRUE)) %>%
+  pull(mean_dev)
+
+future_predictions_plot <- future_predictions_plot %>%
+  mutate(change = fit - baseline)
+
+ggplot(future_predictions_plot, aes(x = date, y = change, color = ESM)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(~ driver, scales = "free_y") +
+  scale_color_manual(values = ESM_colors) +
+  labs(y = "Change in recruitment (relative to 2000–2020)", x = "Year") +
+  theme_bw()
+
+ensemble <- future_predictions_plot %>%
+  group_by(date, driver) %>%
+  summarise(
+    mean = mean(fit, na.rm = TRUE),
+    sd = sd(fit, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot() +
+  geom_ribbon(data = ensemble,
+              aes(x = date, ymin = mean - sd, ymax = mean + sd),
+              fill = "gray70", alpha = 0.5) +
+
+  geom_line(data = ensemble,
+            aes(x = date, y = mean),
+            color = "black", linewidth = 1.2) +
+
+  geom_line(data = future_predictions_plot,
+            aes(x = date, y = fit, color = ESM),
+            alpha = 0.5) +
+
+  facet_wrap(~ driver, scales = "free_y") +
+  scale_color_manual(values = ESM_colors) +
+  theme_bw()
+```
+```{r}
+hist_df <- df_env_joined %>%
+  filter(Year >= 2000, Year <= 2020) %>%
+  group_by(Year) %>%
+  summarise(value = mean(dev, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    Month = NA,
+    period = "2000–2020",
+    ESM = "Observed"
+  )
+
+hist_df <- tidyr::expand_grid(
+  hist_df,
+  driver = c("DO_avg", "pH_avg", "Temperature_avg", "CUTI_avg")
+)
+
+# Future
+future_df <- future_predictions %>%
+  filter(Year >= 2020) %>%
+  mutate(
+    period = "2020–2100",
+    value = fit
+  ) %>%
+  select(Year, Month, driver, value, period, ESM)
+
+combined_df <- bind_rows(hist_df, future_df)
+
+combined_df <- bind_rows(hist_df, future_df) %>%
+  mutate(
+    driver = dplyr::recode(
+      driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      CUTI_avg = "CUTI"
+    )
+  )
+
+
+ggplot(combined_df, aes(x = period, y = value, color = ESM)) +
+  
+  # boxplots
+  geom_boxplot(
+    aes(fill = ESM),
+    alpha = 0.2,
+    outlier.shape = NA,
+    position = position_dodge(width = 0.8)
+  ) +
+  
+  geom_jitter(
+  alpha = 0.4,
+  size = 1,
+  position = position_jitterdodge(
+    jitter.width = 0.15,
+    dodge.width = 0.8
+  )
+) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  
+  facet_wrap(~ driver, scales = "fixed") +
+  
+  scale_color_manual(values = ESM_colors, name = "Model") +
+  scale_fill_manual(values = ESM_colors, name = "Model") +
+  
+  labs(
+    x = "",
+    y = "Recruitment deviation"
+  ) +
+  
+  theme_bw()
+```
+
+```{r}
+
+# Historical annual recruitment
+hist_plot_df <- df_env_joined %>%
+  filter(Year >= 2000, Year <= 2020) %>%
+  group_by(Year) %>%
+  summarise(value = mean(dev, na.rm = TRUE), .groups = "drop") %>%
+  mutate(group = "Historical")
+
+# Future annual predicted recruitment
+future_plot_df <- future_predictions %>%
+  filter(Year >= 2020) %>%
+  group_by(Year, ESM, driver) %>%
+  summarise(value = mean(fit, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    driver = dplyr::recode(
+      driver,
+      DO_avg = "Dissolved Oxygen",
+      pH_avg = "pH",
+      Temperature_avg = "Temperature",
+      CUTI_avg = "CUTI"
+    )
+  )
+
+# Shared y-axis limits
+y_lims <- range(c(hist_plot_df$value, future_plot_df$value), na.rm = TRUE)
+
+# Historical plot
+p_hist <- ggplot(hist_plot_df, aes(x = group, y = value)) +
+  geom_boxplot(fill = "gray80", color = "gray30", alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.12, alpha = 0.35, size = 1.2) +  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_cartesian(ylim = y_lims) +
+  labs(title = "Historical", x = "", y = "Recruitment deviation") +
+  theme_bw()
+
+# Function for future driver plots
+make_future_plot <- function(driver_name) {
+  ggplot(filter(future_plot_df, driver == driver_name),
+         aes(x = ESM, y = value, color = ESM, fill = ESM)) +
+    geom_boxplot(alpha = 0.2, outlier.shape = NA) +
+    geom_jitter(width = 0.12, alpha = 0.35, size = 1.2) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    scale_color_manual(values = ESM_colors, name = "Model") +
+    scale_fill_manual(values = ESM_colors, name = "Model") +
+    coord_cartesian(ylim = y_lims) +
+    labs(title = driver_name, x = "", y = "") +
+    theme_bw() +
+    theme(legend.position = "none")
+}
+
+p_cuti <- make_future_plot("CUTI")
+p_do   <- make_future_plot("Dissolved Oxygen")
+p_ph   <- make_future_plot("pH")
+p_temp <- make_future_plot("Temperature")
+
+
+p_hist <- p_hist + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_cuti <- p_cuti + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_do   <- p_do   + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_ph   <- p_ph   + theme_bw(base_size = 16) + theme(legend.position = "none")
+p_temp <- p_temp + theme_bw(base_size = 16) + theme(legend.position = "none")
+
+
+ggsave("hist.png", p_hist, width = 4, height = 4, dpi = 300)
+ggsave("cuti.png", p_cuti, width = 4, height = 4, dpi = 300)
+ggsave("do.png",   p_do,   width = 4, height = 4, dpi = 300)
+ggsave("ph.png",   p_ph,   width = 4, height = 4, dpi = 300)
+ggsave("temp.png", p_temp, width = 4, height = 4, dpi = 300)
+```
+
+# Correlation between PDO and temperature, pH, and DO (supplemental figure 1)
+```{r}
+df_all_parameters_march <- df_all_parameters %>%  
+  filter(Month == "Mar")
+
+# Pearson correlations
+get_cor_info <- function(data, x, y = "mean_pdo") {
+  test <- cor.test(data[[x]], data[[y]], method = "pearson", use = "complete.obs")
+  
+  r <- round(test$estimate, 2)
+  pval <- test$p.value
+  
+  p_label <- ifelse(
+    pval < 0.001,
+    "p < 0.001",
+    paste0("p = ", signif(pval, 2))
+  )
+  
+  list(r = r, pval = pval, p_label = p_label)
+}
+
+info_ph <- get_cor_info(df_all_parameters_march, "pH_avg")
+info_do <- get_cor_info(df_all_parameters_march, "DO_avg")
+info_temp <- get_cor_info(df_all_parameters_march, "Temperature_avg")
+
+# Define base theme
+base_theme <- theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+# Plot 1: pH vs. PDO
+p1 <- ggplot(df_all_parameters_march, aes(x = pH_avg, y = mean_pdo)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2, color = "black") +
+  annotate(
+    "text", x = Inf, y = Inf,
+    label = paste0("r = ", info_ph$r, "\n", info_ph$p_label),
+    hjust = 1.1, vjust = 1.5, size = 5, fontface = "italic", color = "red"
+  ) +
+  labs(x = "pH", y = "PDO", title = "") +
+  base_theme
+
+# Plot 2: DO vs. PDO
+p2 <- ggplot(df_all_parameters_march, aes(x = DO_avg, y = mean_pdo)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2, color = "black") +
+  annotate(
+    "text", x = Inf, y = Inf,
+    label = paste0("r = ", info_do$r, "\n", info_do$p_label),
+    hjust = 1.1, vjust = 1.5, size = 5, fontface = "italic", color = "red"
+  ) +
+  labs(x = "Dissolved Oxygen (mg/L)", y = NULL, title = "") +
+  base_theme +
+  theme(axis.title.y = element_blank())
+
+# Plot 3: Temperature vs. PDO
+p3 <- ggplot(df_all_parameters_march, aes(x = Temperature_avg, y = mean_pdo)) +
+  geom_point(size = 3, shape = 21, fill = "grey30") +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2, color = "black") +
+  annotate(
+    "text", x = Inf, y = Inf,
+    label = paste0("r = ", info_temp$r, "\n", info_temp$p_label),
+    hjust = 1.1, vjust = 1.5, size = 5, fontface = "italic", color = "red"
+  ) +
+  labs(x = "Temperature (°C)", y = NULL, title = "") +
+  base_theme +
+  theme(axis.title.y = element_blank())
+
+# Combine with patchwork
+(p1 | p2 | p3) +
+  plot_annotation(
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+    )
+  )
+ggsave("PDO_ROMS_correlation.png", width = 8, height = 4, dpi = 300, bg = "white")
+
 ```
 
